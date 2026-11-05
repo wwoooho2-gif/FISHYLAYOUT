@@ -98,7 +98,6 @@ Panel {
             Repeater {
               model: [
                 { label: "Plugin Manager", source: "features/plugin-manager/BarWidget.qml" },
-                { label: "OmaWarden", source: "features/omawarden/BarWidget.qml" },
                 { label: "Quick Drawer", source: "features/quick-drawer/Indicators.qml" },
                 { label: "GPU Monitor", source: "features/gpu-monitor/BarWidget.qml" },
                 { label: "Media Controls", source: "features/better-media/BarWidget.qml" },

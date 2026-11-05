@@ -4,7 +4,6 @@ One private Omarchy shell plugin that groups the selected community features
 behind a single bar icon and dashboard. It bundles:
 
 - Plugin Manager
-- OmaWarden
 - Quick Drawer
 - Omarchy Taskbar
 - Workspace Peek
@@ -21,6 +20,10 @@ a separate add-on, not part of the main plugin list.
 
 The original shell layout preset is preserved at
 `presets/current-layout.json`. Apply it explicitly with:
+
+| Anime wallpaper | Misty forest | Abstract wave |
+|---|---|---|
+| ![Omarchy desktop with anime wallpaper](./presets/layout-anime-wallpaper.png) | ![Omarchy desktop with misty forest wallpaper](./presets/layout-misty-forest.png) | ![Omarchy desktop with abstract wave wallpaper](./presets/layout-wave.png) |
 
 ```bash
 ./presets/apply-current-layout.sh
@@ -54,6 +57,19 @@ The cursor theme-follow hooks are opt-in. After installation, run:
 ~/.config/omarchy/plugins/furina.omarchy-suite/features/cursor-accent/tools/install-cursor-hook.sh
 ```
 
+## Optional: OmaWarden
+
+OmaWarden is a separate upstream plugin and is not installed with FISHYLAYOUT.
+Install it only if you want Bitwarden controls:
+
+```bash
+omarchy plugin add https://github.com/salemsayed/omawarden.git --enable
+```
+
+It adds its own bar widget and is not required by the suite. The original
+multi-icon layout preset references that widget, so install it before applying
+the preset if you want OmaWarden in that layout.
+
 ## Notes
 
 The original multi-icon preset refers to the upstream standalone plugin IDs.
@@ -67,7 +83,6 @@ Bundled source and its license/notice files are under `features/`:
 | Feature | Upstream project |
 |---|---|
 | Plugin Manager | [fross100/omaplug](https://github.com/fross100/omaplug) |
-| OmaWarden | [salemsayed/omawarden](https://github.com/salemsayed/omawarden) |
 | Quick Drawer | [KaplanHalil/omarchy-quick-drawer](https://github.com/KaplanHalil/omarchy-quick-drawer) |
 | Taskbar | [gsus67/omarchy-taskbar](https://github.com/gsus67/omarchy-taskbar) |
 | Workspace Preview | [AnoopLamba/omarchy-workspace-preview](https://github.com/AnoopLamba/omarchy-workspace-preview) |
@@ -80,9 +95,8 @@ Bundled source and its license/notice files are under `features/`:
 Licensing varies by feature; refer to each bundled `LICENSE` and `NOTICE.md`.
 
 Some upstream features rely on Omarchy, Hyprland, or optional tools already
-being available. OmaWarden requires a working Bitwarden CLI setup. Cursor
-Accent's automatic theme-follow behavior also needs its upstream hook
-installer run once from this plugin's installed directory.
+being available. Cursor Accent's automatic theme-follow behavior also needs
+its upstream hook installer run once from this plugin's installed directory.
 
 Plugins execute as your user inside the long-lived Omarchy shell. Review the
 bundled source and its dependencies before enabling it.

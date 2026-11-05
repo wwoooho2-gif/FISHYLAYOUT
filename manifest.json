@@ -4,7 +4,7 @@
   "name": "FISHYLAYOUT",
   "version": "1.0.0",
   "author": "Furina",
-  "description": "A personal dashboard bundling Omarchy plugin management, Bitwarden, quick toggles, taskbar, workspace preview, GPU monitoring, cursor accent, media controls, glass effects, and Alt+Tab.",
+  "description": "A personal dashboard bundling Omarchy plugin management, quick toggles, taskbar, workspace preview, GPU monitoring, cursor accent, media controls, glass effects, and Alt+Tab.",
   "kinds": [
     "service",
     "bar-widget",
