@@ -18,15 +18,6 @@ Panel {
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
 
-  function inject(loader) {
-    if (!loader.item)
-      return
-    if ("bar" in loader.item)
-      loader.item.bar = root.bar
-    if ("settings" in loader.item)
-      loader.item.settings = root.settings
-  }
-
   function runCursorAction(action) {
     cursorActionProcess.command = [
       Qt.resolvedUrl("features/cursor-accent/cursor-accent").toString().replace(/^file:\/\//, ""),
@@ -116,7 +107,7 @@ Panel {
 
           Text {
             Layout.fillWidth: true
-            text: "Open a bundled feature. Its control panel appears after you select it."
+            text: "Feature icons are on the bar. Manage the saved bar layout here."
             color: root.contentForeground
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.body
@@ -136,7 +127,7 @@ Panel {
 
             Text {
               Layout.fillWidth: true
-              text: "Applies the saved bar layout and backs up your current settings. Standalone plugin icons appear only if those plugins are installed."
+              text: "Applies the saved icon arrangement and backs up your current bar settings."
               color: root.contentForeground
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
@@ -154,79 +145,6 @@ Panel {
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.caption
             wrapMode: Text.WordWrap
-          }
-
-          GridLayout {
-            Layout.fillWidth: true
-            columns: 2
-            columnSpacing: Style.space(10)
-            rowSpacing: Style.space(10)
-
-            Repeater {
-              model: [
-                { label: "Plugin Manager", source: "features/plugin-manager/BarWidget.qml" },
-                { label: "Quick Drawer", source: "features/quick-drawer/Indicators.qml" },
-                { label: "GPU Monitor", source: "features/gpu-monitor/BarWidget.qml" },
-                { label: "Media Controls", source: "features/better-media/BarWidget.qml" },
-                { label: "Glass & Blur", source: "features/glass-blur/Panel.qml" }
-              ]
-
-              delegate: Rectangle {
-                required property var modelData
-                Layout.fillWidth: true
-                Layout.preferredHeight: Style.space(82)
-                color: "transparent"
-
-                ColumnLayout {
-                  anchors.fill: parent
-                  spacing: Style.space(5)
-
-                  Text {
-                    Layout.fillWidth: true
-                    text: modelData.label
-                    color: root.contentForeground
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.caption
-                    horizontalAlignment: Text.AlignHCenter
-                  }
-
-                  Loader {
-                    id: featureLoader
-                    active: root.opened
-                    Layout.alignment: Qt.AlignHCenter
-                    Layout.preferredWidth: item ? Math.max(item.implicitWidth, Style.space(44)) : Style.space(44)
-                    Layout.preferredHeight: item ? Math.max(item.implicitHeight, Style.space(32)) : Style.space(32)
-                    source: Qt.resolvedUrl(modelData.source)
-                    onLoaded: root.inject(featureLoader)
-                  }
-                }
-              }
-            }
-          }
-
-          RowLayout {
-            Layout.fillWidth: true
-            spacing: Style.space(8)
-
-            Text {
-              text: "Workspace preview"
-              color: root.contentForeground
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.body
-            }
-
-            Item {
-              Layout.fillWidth: true
-            }
-
-            Loader {
-              id: workspaceLoader
-              active: root.opened
-              source: Qt.resolvedUrl("features/workspace-preview/WorkspacePreview.qml")
-              Layout.preferredWidth: item ? item.implicitWidth : 0
-              Layout.preferredHeight: item ? item.implicitHeight : 0
-              onLoaded: root.inject(workspaceLoader)
-            }
           }
 
           RowLayout {

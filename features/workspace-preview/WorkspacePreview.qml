@@ -247,44 +247,14 @@ BarWidget {
     captureTimeout.restart()
 
     if (root.privacyBlocked) return
-    Qt.callLater(function() { root.prepareCapture() })
-  }
-
-  function prepareCapture() {
-    if (!root.activeAnchor) return
-    if (root.privacyBlocked) return
-
-    if (root.activeWindows.length === 0) {
-      captureTimeout.stop()
-      root.captureState = root.captureReadyState
-      return
-    }
-
-    root.captureState = root.capturePending
-    captureTimeout.restart()
-
-    if (previewLoader.item && previewLoader.item.recapture)
-      previewLoader.item.recapture()
-    root.checkCaptureReadiness()
-  }
-
-  function checkCaptureReadiness() {
-    if (root.privacyBlocked || !root.activeAnchor) return
-    if (root.activeWindows.length === 0) {
-      captureTimeout.stop()
-      root.captureState = root.captureReadyState
-      return
-    }
-    if (!previewLoader.item || !previewLoader.item.capturesReady) return
-    if (previewLoader.item.capturesReady()) {
-      captureTimeout.stop()
-      root.captureState = root.captureReadyState
-    }
+    capturePreparation.restart()
   }
 
   function closePreview() {
     openTimer.stop()
     closeTimer.stop()
+    capturePreparation.stop()
+    captureReadiness.stop()
     captureTimeout.stop()
     root.pendingAnchor = null
     root.pendingWorkspaceId = -1
@@ -318,19 +288,23 @@ BarWidget {
   onScreenSharingDetectedChanged: {
     if (!root.screenSharingDetected) root.temporaryScreenShareOverride = false
     if (root.privacyBlocked) {
+      capturePreparation.stop()
+      captureReadiness.stop()
       captureTimeout.stop()
       root.captureState = root.captureIdle
     } else if (root.activeAnchor) {
-      root.prepareCapture()
+      capturePreparation.restart()
     }
   }
 
   onPrivacyBlockedChanged: {
     if (root.privacyBlocked) {
+      capturePreparation.stop()
+      captureReadiness.stop()
       captureTimeout.stop()
       root.captureState = root.captureIdle
     } else if (root.activeAnchor) {
-      root.prepareCapture()
+      capturePreparation.restart()
     }
   }
 
@@ -362,6 +336,43 @@ BarWidget {
     id: closeTimer
     interval: 200
     onTriggered: root.closePreview()
+  }
+
+  Timer {
+    id: capturePreparation
+    interval: 0
+    onTriggered: {
+      if (!root.activeAnchor || root.privacyBlocked) return
+      if (root.activeWindows.length === 0) {
+        captureTimeout.stop()
+        root.captureState = root.captureReadyState
+        return
+      }
+
+      root.captureState = root.capturePending
+      captureTimeout.restart()
+      if (previewLoader.item && previewLoader.item.recapture)
+        previewLoader.item.recapture()
+      captureReadiness.restart()
+    }
+  }
+
+  Timer {
+    id: captureReadiness
+    interval: 0
+    onTriggered: {
+      if (root.privacyBlocked || !root.activeAnchor) return
+      if (root.activeWindows.length === 0) {
+        captureTimeout.stop()
+        root.captureState = root.captureReadyState
+        return
+      }
+      if (!previewLoader.item || !previewLoader.item.capturesReady) return
+      if (previewLoader.item.capturesReady()) {
+        captureTimeout.stop()
+        root.captureState = root.captureReadyState
+      }
+    }
   }
 
   Timer {
@@ -408,7 +419,7 @@ BarWidget {
     id: previewLoader
     active: root.activeAnchor !== null
     onLoaded: {
-      if (root.activeAnchor && !root.privacyBlocked) root.prepareCapture()
+      if (root.activeAnchor && !root.privacyBlocked) capturePreparation.restart()
     }
 
     sourceComponent: PopupCard {
@@ -523,7 +534,7 @@ BarWidget {
             iconSource: root.iconSourceFor(toplevel)
             windowTitle: root.windowTitleFor(toplevel)
             captureTimedOut: root.captureTimedOut
-            onCaptureContentChanged: root.checkCaptureReadiness()
+            onCaptureContentChanged: captureReadiness.restart()
           }
         }
 
@@ -605,7 +616,6 @@ BarWidget {
             hoverEnabled: true
             onClicked: {
               root.temporaryScreenShareOverride = true
-              root.prepareCapture()
             }
           }
         }

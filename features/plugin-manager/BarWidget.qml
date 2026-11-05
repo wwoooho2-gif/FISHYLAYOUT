@@ -25,6 +25,8 @@ BarWidget {
     function closeForPopoutSwitch() { if (panelItem) panelItem.closeForPopoutSwitch() }
 
     property var panelItem: null
+    property Item externalAnchorItem: null
+    readonly property bool showBarButton: externalAnchorItem === null
 
     function injectPanel() {
         var target = panelLoader.item
@@ -32,15 +34,16 @@ BarWidget {
         panelItem = target
         if ("bar" in target) target.bar = root.bar
         if ("settings" in target) target.settings = root.settings
-        if ("anchorItem" in target) target.anchorItem = button
+        if ("anchorItem" in target) target.anchorItem = root.externalAnchorItem || button
         if ("hostWidget" in target) target.hostWidget = root
     }
 
-    implicitWidth: button.implicitWidth
+    implicitWidth: showBarButton ? button.implicitWidth : 0
     implicitHeight: button.implicitHeight
 
     onBarChanged: injectPanel()
     onSettingsChanged: injectPanel()
+    onExternalAnchorItemChanged: injectPanel()
 
     Loader {
         id: panelLoader
@@ -68,8 +71,9 @@ BarWidget {
         id: button
         anchors.fill: parent
         bar: root.bar
-        text: root.opened ? "\udb85\udcd3" : "\udb85\udcd9"
+        text: "\uf1e6"
         tooltipText: root.opened ? "Close Plugin Manager" : "Plugin Manager"
+        visible: root.showBarButton
 
         onPressed: function(b) {
             if (b === Qt.LeftButton) root.togglePanel()

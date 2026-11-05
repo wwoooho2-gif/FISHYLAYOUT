@@ -1,7 +1,7 @@
 # FISHYLAYOUT
 
-One private Omarchy shell plugin that groups the selected community features
-behind a single bar icon and dashboard. It bundles:
+One private Omarchy shell plugin that places the selected community feature
+icons directly in the bar and includes a small layout dashboard. It bundles:
 
 - Plugin Manager
 - Quick Drawer
@@ -32,25 +32,25 @@ The original shell layout preset is preserved at
 The script replaces only the `bar` object in `~/.config/omarchy/shell.json`,
 preserves other shell settings, and creates a uniquely named backup first.
 You can apply the same preset using **Apply bar preset** in the FISHYLAYOUT
-dashboard. The preset places the FISHYLAYOUT icon with Omarchy's built-in widgets. The
-bundled feature controls remain inside the FISHYLAYOUT dashboard rather than
-appearing as separate bar icons. This preset avoids references to optional
-third-party widgets that may not be installed.
-
-The workspace indicator is an optional Omarchy widget. Enable it with
-`omarchy plugin enable omarchy.workspaces` if it is not already enabled.
+dashboard. The preset matches the previews: Quick Drawer, Glass & Blur,
+workspaces, and the FISHYLAYOUT dashboard button on the left; the clock
+centered; and the GPU readout with display, audio, and network indicators on the
+right. Plugin Manager is available as a tile inside Quick Drawer, so it does
+not add another bar icon. Both suite groups are rendered by FISHYLAYOUT; no
+duplicate standalone widget copies are needed.
 
 ## Install
 
-For the single dashboard, run these commands on your Omarchy machine:
+Run these commands on your Omarchy machine:
 
 ```bash
 omarchy plugin add https://github.com/wwoooho2-gif/FISHYLAYOUT.git --enable
 omarchy bar put furina.omarchy-suite
 ```
 
-The plugin has one bar entry. Its dashboard opens the bundled controls; the
-taskbar and Alt+Tab are loaded through the plugin's panel entry point.
+The plugin has one Omarchy bar entry that renders the bundled feature icons.
+Its dashboard provides the preset action; the taskbar and Alt+Tab are loaded
+through the plugin's panel entry point.
 Alt+Tab writes a generated Hyprland toggle loader under
 `~/.local/state/omarchy/toggles/hypr/` when the panel loads. Delete that loader
 and run `hyprctl reload` to restore Omarchy's built-in Alt+Tab behavior.
@@ -69,17 +69,15 @@ Install it only if you want Bitwarden controls:
 omarchy plugin add https://github.com/salemsayed/omawarden.git --enable
 ```
 
-It adds its own bar widget and is not required by the suite. The original
-multi-icon layout preset references that widget, so install it before applying
-the preset if you want OmaWarden in that layout.
+When enabled, OmaWarden appears as a tile in Quick Drawer and its separate bar
+button is hidden while the drawer hosts it. If OmaWarden is not installed and
+enabled, the tile is hidden. It remains optional and is not required by the
+suite.
 
 ## Notes
 
-The original multi-icon preset refers to the upstream standalone plugin IDs.
-It restores the layout configuration, but those standalone widgets must be
-installed separately; this native bundle registers only its own dashboard
-widget. Installing this bundle alone cannot recreate the old independent
-bar icons.
+The preset uses two instances of the suite bar widget so its bundled controls
+can sit on both sides of the clock. The dashboard button remains on the left.
 
 Bundled source and its license/notice files are under `features/`:
 

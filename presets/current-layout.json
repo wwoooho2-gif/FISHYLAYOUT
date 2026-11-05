@@ -1,6 +1,6 @@
 {
   "bar": {
-    "background": "glassy",
+    "background": "opaque",
     "centerAnchor": "omarchy.clock",
     "layout": {
       "left": [
@@ -8,10 +8,8 @@
           "id": "omarchy.menu"
         },
         {
-          "id": "omarchy.workspaces"
-        },
-        {
-          "id": "furina.omarchy-suite"
+          "id": "furina.omarchy-suite",
+          "segment": "left"
         }
       ],
       "centerBegin": [],
@@ -23,38 +21,20 @@
           "verticalFormat": "HH\n—\nmm"
         }
       ],
-      "centerEnd": [
-        {
-          "id": "omarchy.weather"
-        },
-        {
-          "id": "omarchy.system-update"
-        }
-      ],
+      "centerEnd": [],
       "right": [
         {
-          "id": "omarchy.tray"
-        },
-        {
-          "id": "omarchy.keyboard-layout"
-        },
-        {
-          "id": "omarchy.agents"
-        },
-        {
-          "id": "omarchy.bluetooth"
-        },
-        {
-          "id": "omarchy.network"
-        },
-        {
-          "id": "omarchy.audio"
+          "id": "furina.omarchy-suite",
+          "segment": "right"
         },
         {
           "id": "omarchy.monitor"
         },
         {
-          "id": "omarchy.power"
+          "id": "omarchy.audio"
+        },
+        {
+          "id": "omarchy.network"
         }
       ],
       "tray": []

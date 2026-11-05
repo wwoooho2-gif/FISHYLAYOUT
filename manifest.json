@@ -18,9 +18,25 @@
   },
   "barWidget": {
     "displayName": "Omarchy Suite",
-    "description": "Open the personal Omarchy feature dashboard",
+    "description": "Preview-matched workspace and GPU controls with a layout dashboard",
     "category": "System",
     "defaultSection": "right",
-    "allowMultiple": false
+    "allowMultiple": true,
+    "defaults": {
+      "segment": "left"
+    },
+    "schema": [
+      {
+        "key": "segment",
+        "type": "enum",
+        "label": "Bar group",
+        "options": [
+          "left",
+          "right"
+        ],
+        "defaultValue": "left",
+        "description": "Place workspace controls and the dashboard on the left, or the GPU monitor on the right."
+      }
+    ]
   }
 }

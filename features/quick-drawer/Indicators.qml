@@ -40,6 +40,7 @@ BarWidget {
   // can place in the drawer as extension tiles.
   property var extensionPlugins: []
   property var extensionTiles: []
+  readonly property Item barAnchorItem: mark
 
   // Drag-to-reorder state for the grid.
   property int dragIndex: -1
