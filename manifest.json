@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "furina.omarchy-suite",
+  "name": "FISHYLAYOUT",
+  "version": "1.0.0",
+  "author": "Furina",
+  "description": "A personal dashboard bundling Omarchy plugin management, Bitwarden, quick toggles, taskbar, workspace preview, GPU monitoring, cursor accent, media controls, glass effects, and Alt+Tab.",
+  "kinds": [
+    "service",
+    "bar-widget",
+    "panel"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml",
+    "panel": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Omarchy Suite",
+    "description": "Open the personal Omarchy feature dashboard",
+    "category": "System",
+    "defaultSection": "right",
+    "allowMultiple": false
+  }
+}

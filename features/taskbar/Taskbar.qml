@@ -1,0 +1,2162 @@
+import QtQuick
+import QtQuick.Dialogs
+import QtCore
+import Quickshell
+import Quickshell.Io
+import Quickshell.Wayland
+import Quickshell.Hyprland
+import qs.Commons
+import qs.Commons as Commons
+import qs.Ui
+import "." as Local
+
+// A second bar along the bottom edge of every screen, built from the same
+// theme tokens as Omarchy's own bar (size, colors, font, transparency).
+// Pinned apps come first, then every other open app, all centered. A mark
+// under an icon means the app has windows; the focused app gets a wider mark
+// in the accent color.
+Item {
+  id: root
+
+  property var shell
+  property var manifest
+  property string omarchyPath: ""
+
+  readonly property bool spanish: Qt.locale().name.indexOf("es") === 0
+  function t(english, spanishText) { return spanish ? spanishText : english }
+  function newDictionary(source) { return Object.assign(Object.create(null), source || Object.create(null)) }
+
+  readonly property string configHome: Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config")
+  readonly property string pluginDirectory: decodeURIComponent(
+    Qt.resolvedUrl(".").toString().replace(/^file:\/\//, "").replace(/\/$/, ""))
+  readonly property string pinsPath: configHome + "/omarchy-taskbar/pinned.json"
+  readonly property string iconsMapPath: configHome + "/omarchy-taskbar/pinned-icons.json"
+  readonly property string iconsDirectory: configHome + "/omarchy-taskbar/icons"
+  readonly property int maxCustomIcons: 1024
+  readonly property int barSize: Math.round(Style.bar.sizeHorizontal * (combined ? 1 : configuredScale))
+  readonly property int iconSize: Math.round(barSize * 0.66)
+  readonly property color foreground: Commons.Color.bar.text
+
+  property var pinned: []
+  property var customIcons: Object.create(null)
+  property bool transparent: false
+  property var configuredWidth: null
+  property real configuredScale: 1
+  property string configuredStyle: "default"
+  property var configSnapshot: null
+  property var configWrites: []
+  readonly property bool crystal: configuredStyle === "crystal"
+  property string configuredPosition: "bottom"
+  readonly property bool combined: configuredPosition === "combined"
+  readonly property string pluginId: "furina.omarchy-suite"
+
+  // The one right-click menu open, if any. Opening another or clicking the
+  // bar closes it.
+  property var openMenu: null
+
+  function showMenu(menu) {
+    if (root.openMenu && root.openMenu !== menu) root.openMenu.visible = false
+    root.openMenu = menu
+    menu.visible = true
+  }
+
+  function closeMenu() {
+    if (root.openMenu) {
+      root.openMenu.visible = false
+      root.closedMenu = root.openMenu
+      root.closedMenuAt = Date.now()
+    }
+    root.openMenu = null
+  }
+
+  // In Combine a press on the icon that opened a menu already closed it (the
+  // bar's window is outside the focus grab), so its click must not reopen it.
+  property var closedMenu: null
+  property real closedMenuAt: 0
+
+  function justClosed(menu) {
+    return root.closedMenu === menu && Date.now() - root.closedMenuAt < 500
+  }
+
+  // ------------------------------------------------------------ transparency
+
+  // Same switch as Omarchy's bar: `bar.transparent` in shell.json. Watching
+  // the file keeps both bars in step whichever one was double-clicked.
+  FileView {
+    id: shellFile
+    path: root.configHome + "/omarchy/shell.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      try {
+        var config = JSON.parse(text())
+        root.transparent = !!(config.bar && config.bar.transparent === true)
+        root.onOmarchyBar = root.layoutHas(config.bar && config.bar.layout)
+        root.shellConfigLoaded = true
+        root.placeBarWidget()
+      } catch (e) {}
+    }
+  }
+
+  function toggleTransparent() {
+    Quickshell.execDetached(["omarchy", "bar", "transparent", "toggle"])
+  }
+
+  // ------------------------------------------------------------ bar size
+
+  // Optional settings. Defaults follow the native bar. Each screen resolves
+  // the selected minimum length, growing to fit icons up to its own maximum.
+  FileView {
+    id: configFile
+    path: root.configHome + "/omarchy-taskbar/config.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      try {
+        var config = JSON.parse(text())
+        root.configuredWidth = config && typeof config === "object" && !Array.isArray(config) && config.width !== undefined ? config.width : null
+        root.configuredScale = root.scaleFor(config && config.scale)
+        root.configuredStyle = root.styleFor(config && config.style)
+        root.configuredPosition = root.positionFor(config && config.position)
+        if (!configWriter.running && root.configWrites.length === 0)
+          root.configSnapshot = config && typeof config === "object" && !Array.isArray(config) ? root.newDictionary(config) : root.newDictionary()
+      } catch (e) {
+        root.configuredWidth = null
+        root.configuredScale = 1
+        root.configuredStyle = "default"
+        root.configuredPosition = "bottom"
+        if (!configWriter.running && root.configWrites.length === 0) root.configSnapshot = root.newDictionary()
+      }
+    }
+    onLoadFailed: {
+      root.configuredWidth = null
+      root.configuredScale = 1
+      root.configuredStyle = "default"
+      root.configuredPosition = "bottom"
+      if (!configWriter.running && root.configWrites.length === 0) root.configSnapshot = root.newDictionary()
+    }
+  }
+
+  function scaleFor(value) { return [0.75, 0.9, 1, 1.25, 1.5, 2].indexOf(value) !== -1 ? value : 1 }
+  function styleFor(value) { return value === "crystal" ? "crystal" : "default" }
+  function positionFor(value) { return ["top", "right", "left", "combined"].indexOf(value) !== -1 ? value : "bottom" }
+
+  function widthFor(value, screenWidth, barSize, crystal, contentWidth) {
+    var maximum = Math.max(1, screenWidth - (crystal ? Math.round(barSize * 0.8) : 0))
+    var minimum = Math.min(maximum, Math.max(barSize * 2, contentWidth || 0))
+    if (value === "auto") return minimum
+    var width = typeof value === "number" ? value : NaN
+    if (typeof value === "string" && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)%$/.test(value.trim()))
+      width = maximum * (parseFloat(value) / 100)
+    if (!isFinite(width)) return maximum
+    return Math.min(maximum, Math.max(minimum, Math.round(width)))
+  }
+
+  function barMenuItems(page) {
+    var back = { label: "‹ " + t("Back", "Volver"), page: page === "scale" || page === "length" ? "size" : "root" }
+    if (page === "style") return [back,
+      { label: t("Default", "Predeterminado"), key: "style", value: null, checked: configuredStyle === "default" },
+      { label: "Crystal", key: "style", value: "crystal", checked: crystal }]
+    if (page === "position") return [back,
+      { label: t("Top", "Arriba"), key: "position", value: "top", checked: configuredPosition === "top" },
+      { label: t("Right", "Derecha"), key: "position", value: "right", checked: configuredPosition === "right" },
+      { label: t("Left", "Izquierda"), key: "position", value: "left", checked: configuredPosition === "left" },
+      { label: t("Bottom", "Abajo"), key: "position", value: null, checked: configuredPosition === "bottom" },
+      { label: t("Combine", "Combinar"), key: "position", value: "combined", checked: configuredPosition === "combined" }]
+    if (page === "size") return [back,
+      { label: t("Length", "Largo") + "  ›", page: "length" },
+      { label: t("Width", "Ancho") + "  ›", page: "scale" }]
+    if (page === "scale") return [back].concat([0.75, 0.9, 1, 1.25, 1.5, 2].map(function(scale) {
+      return { label: String(scale).replace(".", Qt.locale().decimalPoint) + "x",
+        key: "scale", value: scale === 1 ? null : scale, checked: configuredScale === scale }
+    }))
+    if (page === "length") return [back].concat([100, 90, 80, 70, 60, 50, 40, 30, 20, 10].map(function(length) {
+      return { label: length === 100 ? t("Full", "Completo") : length + "%",
+        key: "width", value: length === 100 ? null : length + "%",
+        checked: length === 100 ? configuredWidth === null || configuredWidth === "100%" : configuredWidth === length + "%" }
+    }).concat([{ label: t("Auto", "Auto"), key: "width", value: "auto", checked: configuredWidth === "auto" }]))
+    var items = [{ label: t("Style", "Estilo") + "  ›", page: "style" },
+      { label: t("Position", "Posición") + "  ›", page: "position" }]
+    // Combine follows Omarchy's bar: no size of its own to choose.
+    if (configuredPosition === "combined") return items
+    return items.concat([{ label: t("Size", "Tamaño") + "  ›", page: "size" }])
+  }
+
+  function saveConfig(key, value) {
+    if (key !== "style" && key !== "position" && key !== "scale" && key !== "width") return
+    if (key === "style" && value !== null && value !== "crystal") return
+    if (key === "position" && value !== null && root.positionFor(value) !== value) return
+    if (key === "scale" && value !== null && root.scaleFor(value) !== value) return
+    if (key === "width" && value !== null && ["auto", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%"].indexOf(value) === -1) return
+    var config = root.newDictionary()
+    try {
+      var parsed = root.configSnapshot === null ? JSON.parse(configFile.text()) : root.configSnapshot
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) config = Object.assign(Object.create(null), parsed)
+    } catch (e) {}
+    if (value === null) delete config[key]
+    else config[key] = value
+    root.configSnapshot = config
+    root.configWrites = root.configWrites.concat([Object.keys(config).length ? JSON.stringify(config, null, 2) : ""])
+    root.writeNextConfig()
+  }
+
+  function writeNextConfig() {
+    if (configWriter.running || root.configWrites.length === 0) return
+    configWriter.payload = root.configWrites[0]
+    root.configWrites = root.configWrites.slice(1)
+    configWriter.running = true
+  }
+
+  // Serialize atomic writes. The next choice builds on the pending snapshot,
+  // so fast menu selections cannot overwrite one another with stale FileView data.
+  Process {
+    id: configWriter
+    property string payload: ""
+    command: ["bash", "-c",
+      '# shellcheck disable=SC2174\n'
+      + 'if [[ -z $2 ]]; then rm -f -- "$1"; else '
+      + 'umask 077; dir=${1%/*}; mkdir -p -m 700 -- "$dir" || exit; chmod 700 -- "$dir" || exit; '
+      + 'tmp=$(mktemp -- "$dir/.config.XXXXXX") || exit; trap \'rm -f -- "$tmp"\' EXIT; '
+      + 'printf "%s\\n" "$2" >"$tmp" && chmod 600 -- "$tmp" && mv -fT -- "$tmp" "$1"; fi',
+      "omarchy-taskbar", configFile.path, payload]
+    onExited: function(exitCode, exitStatus) {
+      if (exitCode !== 0 || exitStatus !== 0) {
+        root.configWrites = []
+        root.configSnapshot = null
+        console.warn("Taskbar: could not save appearance settings")
+      } else root.writeNextConfig()
+      if (!configWriter.running) configFile.reload()
+    }
+  }
+
+  // ------------------------------------------------------------ pinned apps
+
+  FileView {
+    id: pinsFile
+    path: root.pinsPath
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      try {
+        var list = JSON.parse(text())
+        root.pinned = Array.isArray(list) ? list.map(String) : []
+        // Upgrade only our generated Windows launchers, preserving pin order,
+        // icons and the configured default handler. Serialized with unpin.
+        Qt.callLater(function() {
+          root.pinned.forEach(function(id) {
+            if (/^omarchy-taskbar-[0-9a-f]{16}$/.test(id)) root.queuePinChange("repair", id)
+          })
+        })
+      } catch (e) {
+        root.pinned = []
+      }
+    }
+    onLoadFailed: function(error) {
+      if (error === FileViewError.FileNotFound) seedProc.running = true
+    }
+  }
+
+  FileView {
+    id: iconsFile
+    path: root.iconsMapPath
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      try {
+        var parsed = JSON.parse(text())
+        var icons = Object.create(null)
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            && Object.keys(parsed).length <= root.maxCustomIcons) {
+          Object.keys(parsed).forEach(function(key) {
+            var value = parsed[key]
+            if (typeof value !== "string" || !/^[0-9a-f]{16}-[A-Za-z0-9]{6}\.png$/.test(value)) return
+            var path = root.iconsDirectory + "/" + value
+            if (path.indexOf(root.iconsDirectory + "/") !== 0) return
+            icons[key] = path
+          })
+        }
+        root.customIcons = icons
+      } catch (e) {
+        root.customIcons = root.newDictionary()
+      }
+    }
+    onLoadFailed: root.customIcons = root.newDictionary()
+  }
+
+  // First run: pin the default browser (the real one behind Omarchy's
+  // launcher), file manager and terminal.
+  Process {
+    id: seedProc
+    command: ["bash", "-c",
+      'term=$(grep -v "^#" "${XDG_CONFIG_HOME:-$HOME/.config}/xdg-terminals.list" 2>/dev/null | head -n1); '
+      + 'printf "%s\\n" "$(omarchy-cmd-default-browser 2>/dev/null)" '
+      + '"$(xdg-mime query default inode/directory 2>/dev/null)" "$term"']
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var ids = []
+        text.split("\n").forEach(function(line) {
+          var id = line.trim().replace(/\.desktop$/, "")
+          if (id !== "" && ids.indexOf(id) === -1 && DesktopEntries.byId(id)) ids.push(id)
+        })
+        root.savePins(ids)
+      }
+    }
+  }
+
+  function savePins(list) {
+    root.pinned = list
+    Quickshell.execDetached(["bash", "-c",
+      '# shellcheck disable=SC2174\n'
+      + 'umask 077; dir=${1%/*}; mkdir -p -m 700 -- "$dir" && chmod 700 -- "$dir" || exit; '
+      + 'tmp=$(mktemp -- "$dir/.pinned.XXXXXX") || exit; trap \'rm -f -- "$tmp"\' EXIT; '
+      + 'printf "%s\\n" "$2" >"$tmp" && chmod 600 -- "$tmp" && mv -fT -- "$tmp" "$1"',
+      "omarchy-taskbar", root.pinsPath, JSON.stringify(list, null, 2)])
+  }
+
+  function isPinned(key) { return root.pinned.indexOf(key) !== -1 }
+
+  function togglePin(key) {
+    var list = root.pinned.slice()
+    var at = list.indexOf(key)
+    if (at === -1) list.push(key)
+    else {
+      list.splice(at, 1)
+      root.queuePinChange("remove", key)
+    }
+    savePins(list)
+  }
+
+  function movePin(app, index) {
+    if (!app || index < 0 || (!root.isPinned(app.key) && !root.canPin(app))) return
+    var list = root.pinned.slice()
+    var at = list.indexOf(app.key)
+    if (at !== -1) {
+      list.splice(at, 1)
+      if (at < index) index -= 1
+    }
+    list.splice(index, 0, app.key)
+    if (JSON.stringify(list) !== JSON.stringify(root.pinned)) root.savePins(list)
+  }
+
+  // File operations run in order, including removal, so a quick unpin cannot
+  // race a drop that is still creating its desktop entry.
+  property var pinChanges: []
+
+  function queuePinChange(operation, value, path) {
+    root.pinChanges = root.pinChanges.concat([{ operation: operation, value: value, path: path || "" }])
+    if (!pinChangeProc.busy) nextPinChange()
+  }
+
+  function nextPinChange() {
+    if (root.pinChanges.length === 0) return
+    var change = root.pinChanges[0]
+    root.pinChanges = root.pinChanges.slice(1)
+    pinChangeProc.operation = change.operation
+    pinChangeProc.value = change.value
+    pinChangeProc.path = change.path
+    pinChangeProc.applicationIds = JSON.stringify(DesktopEntries.applications.values.map(function(entry) { return String(entry.id) }))
+    pinChangeProc.exitSeen = false
+    pinChangeProc.streamSeen = false
+    pinChangeProc.busy = true
+    pinChangeProc.running = true
+  }
+
+  function finishPinChange() {
+    if (!pinChangeProc.exitSeen || !pinChangeProc.streamSeen) return
+    pinChangeProc.busy = false
+    nextPinChange()
+  }
+
+  function droppedPath(url) {
+    var match = /^file:\/\/(?:localhost)?(\/[^?#]*)$/.exec(String(url))
+    if (!match) return ""
+    try {
+      var path = decodeURIComponent(match[1])
+      return path !== "/" && !/[\x00-\x1f\x7f-\x9f]/.test(path) ? path : ""
+    } catch (e) { return "" }
+  }
+
+  FileDialog {
+    id: iconFileDialog
+    property string appKey: ""
+    title: root.t("Choose an icon", "Elegir un icono")
+    fileMode: FileDialog.OpenFile
+    currentFolder: StandardPaths.writableLocation(StandardPaths.PicturesLocation)
+    nameFilters: ["Icon files (*.png *.PNG *.svg *.SVG *.ico *.ICO *.exe *.EXE)"]
+    onAccepted: {
+      var path = root.droppedPath(selectedFile)
+      if (path !== "") root.queuePinChange("icon", appKey, path)
+    }
+  }
+
+  function iconErrorMessage(code) {
+    switch (code) {
+    case "key": return root.t("This app cannot have a custom icon.", "Esta aplicación no admite un icono personalizado.")
+    case "source": return root.t("The selected icon cannot be read.", "No se puede leer el icono seleccionado.")
+    case "size": return root.t("The selected icon is too large.", "El icono seleccionado es demasiado grande.")
+    case "type": return root.t("The selected file is not a supported icon.", "El archivo seleccionado no es un icono compatible.")
+    case "dimensions": return root.t("The selected icon dimensions are too large.", "Las dimensiones del icono seleccionado son demasiado grandes.")
+    case "extract": return root.t("The icon could not be extracted.", "No se pudo extraer el icono.")
+    case "svg": return root.t("The selected SVG is not safe to use.", "El SVG seleccionado no es seguro.")
+    case "busy": return root.t("Another icon change is still in progress.", "Todavía hay otro cambio de icono en curso.")
+    case "tool": return root.t("A required icon tool is unavailable.", "No está disponible una herramienta necesaria para el icono.")
+    case "storage": return root.t("The icon storage directory is unavailable.", "El directorio de iconos no está disponible.")
+    case "map": return root.t("The custom icon map could not be updated.", "No se pudo actualizar el mapa de iconos personalizados.")
+    case "temp": return root.t("A temporary icon file could not be prepared.", "No se pudo preparar un archivo temporal para el icono.")
+    case "usage": return root.t("The icon change request was invalid.", "La solicitud de cambio de icono no era válida.")
+    default: return root.t("The custom icon could not be changed.", "No se pudo cambiar el icono personalizado.")
+    }
+  }
+
+  function notifyIconError(code) {
+    Quickshell.execDetached(["notify-send", root.t("Icon change failed", "Error al cambiar el icono"),
+      root.iconErrorMessage(code)])
+  }
+
+  Process {
+    id: pinChangeProc
+    property string operation: ""
+    property string value: ""
+    property string path: ""
+    property string applicationIds: "[]"
+    property bool exitSeen: false
+    property bool streamSeen: false
+    property bool busy: false
+    command: ["bash", "-c",
+      'case "$1" in icon) timeout -k 2 30 "$BASH" "$5" "$1" "$2" "$4" ;; '
+      + 'unicon) timeout -k 2 30 "$BASH" "$5" "$1" "$2" "" ;; '
+      + '*) timeout -k 2 30 "$BASH" "$5" "$1" "$2" "$3" ;; esac',
+      "omarchy-taskbar", operation, value, applicationIds, path,
+      root.pluginDirectory + "/bin/pin-file.sh"]
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var operation = pinChangeProc.operation
+        var result = text.split(/\r?\n/, 1)[0].trim()
+        var iconOperation = operation === "icon" || operation === "unicon"
+        var error = iconOperation ? /^error:([A-Za-z0-9_-]+)$/.exec(result) : null
+        if (error) root.notifyIconError(error[1])
+        else if (operation === "add" && result !== "" && !/[\x00-\x1f\x7f-\x9f]/.test(result)
+            && !root.isPinned(result)) root.savePins(root.pinned.concat([result]))
+        else if (iconOperation && result === "ok") iconsFile.reload()
+        pinChangeProc.streamSeen = true
+        root.finishPinChange()
+      }
+    }
+    onExited: {
+      pinChangeProc.exitSeen = true
+      root.finishPinChange()
+    }
+  }
+
+  // ------------------------------------------------------------ apps model
+
+  // Omarchy web apps run as Chromium --app windows named
+  // "chrome-<host>__<path>-<profile>"; the heuristic lookup would match the
+  // browser. Their desktop entries launch omarchy-launch-webapp (or --app=)
+  // with the URL, so the host links each window to its own entry and icon.
+  readonly property var webApps: {
+    var map = root.newDictionary()
+    DesktopEntries.applications.values.forEach(function(entry) {
+      var exec = String(entry.execString || "")
+      if (exec.indexOf("omarchy-launch-webapp") === -1 && exec.indexOf("--app=") === -1) return
+      var match = /https?:\/\/([^\/\s"':]+)/.exec(exec)
+      if (match && !(match[1].toLowerCase() in map)) map[match[1].toLowerCase()] = entry
+    })
+    return map
+  }
+
+  // Omarchy's own web app handlers (omarchy-webapp-handler-hey, -zoom…) keep
+  // the URL in the script: their name is matched against the host's labels.
+  readonly property var webHandlers: {
+    var map = root.newDictionary()
+    DesktopEntries.applications.values.forEach(function(entry) {
+      var first = String((entry.command || [])[0] || "").split("/").pop()
+      if (first.indexOf("omarchy-webapp-handler-") === 0) map[first.slice(23).toLowerCase()] = entry
+    })
+    return map
+  }
+
+  function webAppEntry(appId) {
+    var match = /^(?:chrome|chromium|brave|msedge|vivaldi)-(.+?)__/.exec(appId)
+    if (!match) return null
+    var host = match[1].toLowerCase()
+    if (root.webApps[host]) return root.webApps[host]
+    var labels = host.split(".")
+    for (var i = 0; i < labels.length; i++)
+      if (labels[i].length >= 3 && root.webHandlers[labels[i]]) return root.webHandlers[labels[i]]
+    return null
+  }
+
+  // Desktop entries by the program they run (first word of Exec after
+  // launchers like uwsm/setsid/env), cut to 15 characters like a process name.
+  // Used to find the entry of a script that opened a window under another
+  // program (e.g. omarchy-windows-vm opening xfreerdp).
+  readonly property var programs: {
+    var map = root.newDictionary()
+    DesktopEntries.applications.values.forEach(function(entry) {
+      var words = (entry.command || []).map(String)
+      // Skip launchers, their options (env --unset=X) and VAR=value pairs.
+      while (words.length > 0 && (/^(uwsm|uwsm-app|app|--|setsid|env)$/.test(words[0].split("/").pop())
+                                  || /^[A-Za-z_]+=/.test(words[0]) || /^-/.test(words[0])))
+        words.shift()
+      if (words.length === 0) return
+      var key = words[0].split("/").pop().slice(0, 15)
+      if (key !== "" && !(key in map)) map[key] = entry
+    })
+    return map
+  }
+
+  // Entries that open a program inside a terminal ("-e prog" or
+  // "-e bash -c 'prog …'"), by that program, plus their names and icons,
+  // to recognise Omarchy's TUI windows (class TUI.tile/TUI.float) by what
+  // runs inside them.
+  readonly property var terminalApps: {
+    var list = []
+    DesktopEntries.applications.values.forEach(function(entry) {
+      var words = (entry.command || []).map(String)
+      var at = words.indexOf("-e")
+      if (at === -1 || at + 1 >= words.length) return
+      var program = words[at + 1].split("/").pop()
+      if (/^(ba)?sh$/.test(program) && words[at + 2] === "-c" && words[at + 3])
+        program = words[at + 3].trim().split(/\s+/)[0].split("/").pop()
+      list.push({ entry: entry, program: program.slice(0, 15),
+                  hints: [String(entry.icon || "").toLowerCase(), String(entry.name || "").toLowerCase().replace(/\s+/g, "")]
+                           .filter(function(hint) { return hint.length >= 4 }) })
+    })
+    return list
+  }
+
+  function isTerminal(entry) {
+    return !!entry && (entry.categories || []).map(String).indexOf("TerminalEmulator") !== -1
+  }
+
+  // Shells and multiplexers inside a terminal: still just a terminal.
+  readonly property var shellNames: /^((ba|z|da)?sh|fish|nu|tmux|zellij|screen|ssh|s[u](do)?|do[a]s|login|env)$/
+
+  // The app running inside a terminal window, from one process name: a
+  // terminal app ("-e prog"), an entry that runs it (e.g. cliamp), or an entry
+  // whose program or name contains it (e.g. voxtype → voxtype-configure).
+  function appInside(processName) {
+    if (processName === "" || root.shellNames.test(processName)) return null
+    var entry = terminalAppFor(processName)
+    if (entry) return entry
+    entry = root.programs[processName]
+    if (entry && !isTerminal(entry)) return entry
+    if (processName.length < 4) return null
+    var all = DesktopEntries.applications.values
+    for (var i = 0; i < all.length; i++) {
+      if (isTerminal(all[i])) continue
+      var words = (all[i].command || []).map(String)
+      var program = String(words[0] || "").split("/").pop().toLowerCase()
+      var name = String(all[i].name || "").toLowerCase().replace(/\s+/g, "")
+      if (program.indexOf(processName) === 0 || name.indexOf(processName) === 0) return all[i]
+    }
+    return null
+  }
+
+  // The terminal app whose program is (or whose name/icon appears in) a
+  // process name running inside the window.
+  function terminalAppFor(processName) {
+    var name = processName.toLowerCase()
+    for (var i = 0; i < root.terminalApps.length; i++)
+      if (root.terminalApps[i].program === processName) return root.terminalApps[i].entry
+    for (var j = 0; j < root.terminalApps.length; j++)
+      if (root.terminalApps[j].hints.some(function(hint) { return name.indexOf(hint) !== -1 })) return root.terminalApps[j].entry
+    return null
+  }
+
+  // How a window is looked up: by class, except Omarchy's TUI windows, which
+  // share a class and are told apart one by one (by Hyprland address).
+  function lookupFor(toplevel) {
+    var appId = String(toplevel.appId || "")
+    // Terminals too: each window may be running a different app.
+    // Wine's generic classes can also belong to different executables.
+    var wine = /(^wine(?:64)?$|\.exe$)/i.test(appId)
+    if (!wine && appId.indexOf("TUI.") !== 0 && !isTerminal(entryFor(appId))) return appId
+    var hypr = hyprlandOf(toplevel)
+    var address = hypr ? String(hypr.address) : ""
+    if (address !== "" && !/^0x/.test(address)) address = "0x" + address
+    return /^0x[0-9a-fA-F]+$/.test(address) ? "@" + address : appId
+  }
+
+  // Generated file launchers run a MIME opener, not the Windows program
+  // itself. Match its exact basename (or explicit startup class) instead.
+  // Never guess between two pinned files with the same Windows identity.
+  function windowsEntryFor(appId) {
+    var name = String(appId || "").toLowerCase()
+    if (name === "") return null
+    var match = null
+    for (var i = 0; i < root.pinned.length; i++) {
+      var id = root.pinned[i]
+      if (!/^omarchy-taskbar-[0-9a-f]{16}$/.test(id)) continue
+      var entry = DesktopEntries.byId(id)
+      if (!entry) continue
+      var words = (entry.command || []).map(String)
+      var path = words.length === 2 && words[0] === "xdg-open" ? words[1]
+        : words.length === 3 && words[0] === "gio" && words[1] === "open" ? words[2] : ""
+      if (!/\.exe$/i.test(path)) continue
+      var base = path.split("/").pop().toLowerCase()
+      var startup = String(entry.startupClass || "").toLowerCase()
+      if (name !== base && (startup === "" || name !== startup)) continue
+      if (match && match.id !== entry.id) return null
+      match = entry
+    }
+    return match
+  }
+
+  function entryFor(appId) {
+    if (!appId) return null
+    return windowsEntryFor(appId) || webAppEntry(appId) || DesktopEntries.heuristicLookup(appId)
+  }
+
+  // A window's own entry, or the one of the program behind it (found later
+  // through its process), so e.g. a terminal with its own class joins the
+  // terminal's button and can be pinned like it.
+  function windowEntry(appId, lookup) {
+    var entry = root.windowsEntryFor(appId) || (lookup.charAt(0) === "@" ? null : entryFor(appId))
+    if (entry) return entry
+    var found = root.fallbacks[lookup]
+    // A terminal window with nothing but a shell inside stays the terminal.
+    if (lookup.charAt(0) === "@" && !(found && found.entry !== "")) return entryFor(appId)
+    return found && found.entry !== "" ? DesktopEntries.byId(found.entry) : null
+  }
+
+  // The button a window belongs to: its entry id, else the program's path,
+  // else its class. Pinned keys are the same ids or paths.
+  function keyFor(toplevel) {
+    var appId = String(toplevel.appId || "")
+    var lookup = lookupFor(toplevel)
+    var entry = windowEntry(appId, lookup)
+    if (entry) return entry.id
+    var found = root.fallbacks[lookup]
+    return found && found.exe !== "" && lookup.charAt(0) !== "@" ? found.exe : lookup
+  }
+
+  readonly property var apps: {
+    var list = []
+    var seen = root.newDictionary()
+    DesktopEntries.applications.values // re-evaluate when apps are installed
+    root.pinned.forEach(function(id) {
+      // A pinned program without a desktop entry is kept as its path.
+      if (id.charAt(0) === "/") {
+        if (seen[id]) return
+        seen[id] = true
+        list.push({ key: id, entry: null, appId: "", lookup: "", exe: id })
+        return
+      }
+      var entry = DesktopEntries.byId(id)
+      if (!entry || seen[entry.id]) return
+      seen[entry.id] = true
+      list.push({ key: entry.id, entry: entry, appId: "", lookup: "", exe: "" })
+    })
+    ToplevelManager.toplevels.values.forEach(function(toplevel) {
+      var appId = String(toplevel.appId || "")
+      var lookup = root.lookupFor(toplevel)
+      var found = root.fallbacks[lookup]
+      // Every terminal window is asked once what runs inside it, even when it
+      // is grouped under the terminal's button for now.
+      if (lookup.charAt(0) === "@" && !found) Qt.callLater(root.lookupIcon, lookup)
+      var key = root.keyFor(toplevel)
+      if (key === "" || seen[key]) return
+      seen[key] = true
+      list.push({ key: key, entry: root.windowEntry(appId, lookup), appId: appId, lookup: lookup, exe: found ? found.exe : "" })
+    })
+    return list
+  }
+
+  function windowsFor(key) {
+    return ToplevelManager.toplevels.values.filter(function(toplevel) {
+      return root.keyFor(toplevel) === key
+    })
+  }
+
+  // From the desktop entry; for a window without one (e.g. a terminal started
+  // with its own class), the entry or program found behind its process.
+  function launch(app) {
+    if (app.entry) { launchEntry(app.entry); return }
+    if (app.exe) { Quickshell.execDetached(["uwsm-app", "--", app.exe]); return }
+    var found = root.fallbacks[app.lookup]
+    if (!found) return
+    if (found.entry !== "") launchEntry(DesktopEntries.byId(found.entry))
+    else if (found.exe !== "") Quickshell.execDetached(["uwsm-app", "--", found.exe])
+  }
+
+  // uwsm-app rejects desktop ids that are not valid ids, such as web apps
+  // named "Google Maps.desktop"; those run the entry's own command instead.
+  function launchEntry(entry) {
+    if (!entry) return
+    if (/^[A-Za-z0-9._-]+$/.test(entry.id)) Quickshell.execDetached(["uwsm-app", "--", entry.id + ".desktop"])
+    else if (entry.command && entry.command.length > 0) Quickshell.execDetached(["uwsm-app", "--"].concat(entry.command))
+  }
+
+  function canLaunch(app) {
+    var found = root.fallbacks[app.lookup]
+    return !!app.entry || !!app.exe || !!(found && (found.entry !== "" || found.exe !== ""))
+  }
+
+  // Anything the bar can start again can be pinned: an entry or a program path.
+  function canPin(app) { return !!app.entry || (app.key.charAt(0) === "/" && !!app.exe) }
+
+  // Not running: start it. Running elsewhere: bring its window up. Already
+  // focused with several windows: step to the next one.
+  function activate(app) {
+    var windows = windowsFor(app.key)
+    if (windows.length === 0) {
+      launch(app)
+      return
+    }
+    var current = -1
+    for (var i = 0; i < windows.length; i++)
+      if (windows[i].activated) current = i
+    if (current === -1) focusWindow(windows[0])
+    else if (windows.length > 1) focusWindow(windows[(current + 1) % windows.length])
+  }
+
+  // Hyprland's view of a window: its workspace and address.
+  function hyprlandOf(toplevel) {
+    var all = Hyprland.toplevels.values
+    for (var i = 0; i < all.length; i++) if (all[i].wayland === toplevel) return all[i]
+    return null
+  }
+
+  function workspaceOf(toplevel) {
+    var hypr = hyprlandOf(toplevel)
+    return hypr && hypr.workspace ? String(hypr.workspace.name) : ""
+  }
+
+  function specialWorkspaceForMonitor(monitors, targetMonitor) {
+    if (!Array.isArray(monitors)) return ""
+    var monitor = null
+    if (targetMonitor !== "")
+      for (var i = 0; i < monitors.length; i++)
+        if (String(monitors[i].name || "") === targetMonitor) monitor = monitors[i]
+    if (!monitor)
+      for (var j = 0; j < monitors.length; j++)
+        if (monitors[j].focused === true) monitor = monitors[j]
+    var special = monitor ? monitor.specialWorkspace : null
+    var name = special && Number(special.id) !== 0 ? String(special.name || "") : ""
+    return /^special:[A-Za-z0-9._-]+$/.test(name) ? name : ""
+  }
+
+  property var focusRequests: []
+  property var activeFocusRequest: null
+  property var activeFocusQuery: null
+  property int focusRequestSeq: 0
+  property int activeFocusRequestId: 0
+
+  function dispatchFocus(request, monitors) {
+    var special = root.specialWorkspaceForMonitor(monitors, request.monitor)
+    if (special !== "" && special !== request.workspace) {
+      // toggle_special acts on the focused monitor, so aim it at the
+      // target window's monitor first when that one is not focused.
+      var target = null
+      if (Array.isArray(monitors) && request.monitor !== "")
+        for (var i = 0; i < monitors.length; i++)
+          if (String(monitors[i].name || "") === request.monitor) target = monitors[i]
+      if (target && target.focused !== true
+          && /^[A-Za-z0-9._-]+$/.test(request.monitor))
+        Hyprland.dispatch('hl.dsp.focus({ monitor = "' + request.monitor + '" })')
+      Hyprland.dispatch('hl.dsp.workspace.toggle_special("' + special.slice(8) + '")')
+    }
+    Hyprland.dispatch('hl.dsp.focus({ window = "address:' + request.address + '" })')
+  }
+
+  function startNextFocus() {
+    if (root.activeFocusQuery !== null || root.activeFocusRequest !== null
+        || root.focusRequests.length === 0) return
+    root.activeFocusRequest = root.focusRequests[0]
+    root.focusRequests = root.focusRequests.slice(1)
+    root.focusRequestSeq = (root.focusRequestSeq || 0) + 1
+    root.activeFocusRequestId = root.focusRequestSeq
+    var query = null
+    if (typeof focusMonitorQueryComponent !== "undefined"
+        && focusMonitorQueryComponent)
+      query = focusMonitorQueryComponent.createObject(root, {
+        "requestId": root.focusRequestSeq
+      })
+    if (!query) {
+      root.finishFocus("", false)
+      return
+    }
+    root.activeFocusQuery = query
+    if (typeof focusQueryTimeout !== "undefined" && focusQueryTimeout) {
+      focusQueryTimeout.requestId = root.focusRequestSeq
+      focusQueryTimeout.restart()
+    }
+    query.running = true
+    // A start that failed synchronously never emits exited: release the
+    // request at once instead of waiting for the timeout.
+    if (!query.running && !query.hasExited
+        && root.activeFocusRequest !== null)
+      root.finishFocus("", false)
+  }
+
+  function finishFocus(monitorsJson, querySucceeded) {
+    var request = root.activeFocusRequest
+    if (request === null) return
+    if (typeof focusQueryTimeout !== "undefined" && focusQueryTimeout)
+      focusQueryTimeout.stop()
+    var query = root.activeFocusQuery
+    root.activeFocusQuery = null
+    if (query) {
+      query.running = false
+      if (typeof query.destroy === "function") query.destroy()
+    }
+    var monitors = []
+    if (querySucceeded) {
+      try {
+        var parsed = JSON.parse(monitorsJson)
+        if (Array.isArray(parsed)) monitors = parsed
+      } catch (e) {}
+    }
+    root.dispatchFocus(request, monitors)
+    root.activeFocusRequest = null
+    root.startNextFocus()
+  }
+
+  // Only the current request may finish, and only once exited and the
+  // collector have both delivered. runningChanged(false) can arrive
+  // before exited, and late events from a previous request must not
+  // finish the current one without its data.
+  function completeFocusQuery(requestId, query) {
+    var source = query === undefined ? root.activeFocusQuery : query
+    if (!source || source !== root.activeFocusQuery) return
+    var eventId = requestId === undefined ? source.requestId : requestId
+    if (root.activeFocusRequest !== null && eventId !== undefined
+        && eventId !== null && eventId !== 0 && root.activeFocusRequestId
+        && eventId !== root.activeFocusRequestId) return
+    if (root.activeFocusRequest !== null) {
+      if (source.hasExited && source.streamFinished)
+        root.finishFocus(source.output, source.querySucceeded)
+    }
+    if (root.activeFocusRequest === null
+        && (root.activeFocusQuery === null || !root.activeFocusQuery.running))
+      root.startNextFocus()
+  }
+
+  function timeoutFocusQuery(requestId) {
+    if (root.activeFocusRequest === null) return
+    var eventId = requestId === undefined
+      ? (typeof focusQueryTimeout !== "undefined" && focusQueryTimeout
+         ? focusQueryTimeout.requestId : 0)
+      : requestId
+    if (eventId && root.activeFocusRequestId
+        && eventId !== root.activeFocusRequestId) return
+    if (typeof focusQueryTimeout !== "undefined" && focusQueryTimeout)
+      focusQueryTimeout.stop()
+    var query = root.activeFocusQuery
+    root.activeFocusQuery = null
+    if (query) {
+      query.running = false
+      if (typeof query.destroy === "function") query.destroy()
+    }
+    // Focus without toggling: the scratchpad state is unknown.
+    root.finishFocus("", false)
+  }
+
+  // Jumps to one window, switching to its workspace. A visible scratchpad is
+  // hidden first unless the target belongs to it. The address comes from
+  // Hyprland and is checked to be hex before it goes into the dispatch.
+  function focusWindow(toplevel) {
+    var hypr = hyprlandOf(toplevel)
+    var address = hypr ? String(hypr.address) : ""
+    if (!/^0x/.test(address)) address = "0x" + address
+    if (!/^0x[0-9a-fA-F]+$/.test(address)) {
+      toplevel.activate()
+      return
+    }
+    var workspace = hypr && hypr.workspace ? String(hypr.workspace.name) : ""
+    var monitor = hypr && hypr.monitor ? String(hypr.monitor.name || "") : ""
+    root.focusRequests = root.focusRequests.concat([{
+      address: address,
+      workspace: workspace,
+      monitor: monitor
+    }])
+    root.startNextFocus()
+  }
+
+  // Query at click time: cached lastIpcObject data can be stale, and toggling
+  // from stale state would reopen a scratchpad that has already been hidden.
+  // One Process per request: handlers close over this instance and its
+  // captured requestId, so a killed process cannot complete a later request.
+  Component {
+    id: focusMonitorQueryComponent
+    Process {
+      id: focusQueryProcess
+      command: ["hyprctl", "monitors", "-j"]
+      property bool hasExited: false
+      property bool streamFinished: false
+      property bool querySucceeded: false
+      property int requestId: 0
+      property string output: ""
+      stdout: StdioCollector {
+        waitForEnd: true
+        onStreamFinished: {
+          focusQueryProcess.output = text
+          focusQueryProcess.streamFinished = true
+          root.completeFocusQuery(focusQueryProcess.requestId, focusQueryProcess)
+        }
+      }
+      onExited: function(exitCode, exitStatus) {
+        hasExited = true
+        querySucceeded = exitCode === 0 && exitStatus === 0
+        root.completeFocusQuery(focusQueryProcess.requestId, focusQueryProcess)
+      }
+      onRunningChanged: root.completeFocusQuery(focusQueryProcess.requestId, focusQueryProcess)
+    }
+  }
+
+  // A hung hyprctl must not stall the click queue: on timeout, focus the
+  // window without toggling the scratchpad.
+  Timer {
+    id: focusQueryTimeout
+    interval: 2000
+    repeat: false
+    property int requestId: 0
+    onTriggered: root.timeoutFocusQuery(focusQueryTimeout.requestId)
+  }
+
+  function closeAll(app) {
+    windowsFor(app.key).forEach(function(toplevel) { toplevel.close() })
+  }
+
+  // ------------------------------------------------------------ icons
+
+  // Ported from Omarchy's shell/services/AppLibrary.qml: panel plugins do
+  // not receive shell.appLibrary. The index bypasses stale theme caches.
+  property var iconIndex: Object.create(null)
+  property var pendingIconIndex: Object.create(null)
+
+  function iconSource(icon) {
+    var value = String(icon || "")
+    if (value.length === 0) return Quickshell.iconPath("application-x-executable", true)
+    if (value.indexOf("file://") === 0 || value.indexOf("image://") === 0) return value
+    if (value.charAt(0) === "/") return Util.fileUrl(value)
+    // Prefer app/device icons: a themed lookup can pick an action such as zoom.
+    var found = root.iconIndex[value]
+    if (found) return Util.fileUrl(found)
+    var themed = Quickshell.iconPath(value, true)
+    if (themed.length > 0) return themed
+    return Quickshell.iconPath("application-x-executable", true)
+  }
+
+  function iconFor(app) {
+    var custom = root.customIcons[app.key]
+    if (typeof custom === "string" && custom !== "") return Util.fileUrl(custom)
+    var found = root.fallbacks[app.lookup]
+    // A pinned program path: its file name ("/usr/bin/foot" → "foot").
+    var own = app.appId !== "" ? app.appId.toLowerCase() : String(app.exe || "").split("/").pop()
+    var name = app.entry && app.entry.icon ? app.entry.icon : (found && found.icon) || own
+    if (!app.entry && app.lookup !== "") Qt.callLater(root.lookupIcon, app.lookup)
+    return root.iconSource(name)
+  }
+
+  function refreshIcons() {
+    if (!iconIndexScan.running) iconIndexScan.running = true
+  }
+
+  function indexIconLine(path) {
+    var value = String(path || "").trim()
+    if (value.length === 0) return
+    var slash = value.lastIndexOf("/")
+    var file = slash >= 0 ? value.slice(slash + 1) : value
+    var dot = file.lastIndexOf(".")
+    var name = dot > 0 ? file.slice(0, dot) : file
+    if (name.length > 0 && root.pendingIconIndex[name] === undefined)
+      root.pendingIconIndex[name] = value
+  }
+
+  Process {
+    id: iconIndexScan
+    // Non-login shell: profile activation can touch the watched desktop-entry
+    // dirs and trigger an endless rescan. $1: home, $2: XDG dirs, $3: pixmaps.
+    // Match Omarchy's dirs and app/device contexts, emitting SVGs before PNGs
+    // so the first hit per name prefers a scalable icon. Arrays preserve spaces.
+    command: ["bash", "-c",
+      'bases=("$1/.icons" "$1/.local/share/icons"); '
+      + 'IFS=: read -r -a data_dirs <<< "$2"; '
+      + 'for d in "${data_dirs[@]}"; do bases+=("$d/icons"); done; '
+      + 'for ext in svg png; do for base in "${bases[@]}"; do '
+      + '[[ -d $base ]] && find "$base" \\( -path "*/apps/*" -o -path "*/devices/*" \\) -name "*.$ext" 2>/dev/null; '
+      + 'done; find "$3" -maxdepth 1 -name "*.$ext" 2>/dev/null; done', "omarchy-taskbar",
+      Quickshell.env("HOME"), Quickshell.env("XDG_DATA_DIRS") || "/usr/local/share:/usr/share", "/usr/share/pixmaps"]
+    stdout: SplitParser { onRead: function(line) { root.indexIconLine(line) } }
+    onStarted: root.pendingIconIndex = root.newDictionary()
+    // Replace the property only when complete, re-evaluating icon bindings.
+    onExited: root.iconIndex = root.pendingIconIndex
+  }
+
+  Timer {
+    id: iconIndexDebounce
+    interval: 750
+    onTriggered: root.refreshIcons()
+  }
+
+  Connections {
+    target: DesktopEntries.applications
+    function onValuesChanged() { iconIndexDebounce.restart() }
+  }
+
+  Component.onCompleted: {
+    root.refreshIcons()
+    Local.Bridge.taskbar = root
+  }
+  Component.onDestruction: if (Local.Bridge.taskbar === root) Local.Bridge.taskbar = null
+
+  // A window whose class has no desktop entry (e.g. `foot --app-id=x`) borrows
+  // the icon, entry and program of the process behind it: { icon, entry, exe }.
+  // Asked once per class.
+  property var fallbacks: Object.create(null)
+  property var iconQueue: []
+
+  function lookupIcon(appId) {
+    if (appId === "" || appId in root.fallbacks || root.iconQueue.indexOf(appId) !== -1) return
+    root.iconQueue = root.iconQueue.concat([appId])
+    if (!iconProc.running) nextIcon()
+  }
+
+  function nextIcon() {
+    if (root.iconQueue.length === 0) return
+    iconProc.appId = root.iconQueue[0]
+    root.iconQueue = root.iconQueue.slice(1)
+    iconProc.running = true
+  }
+
+  Process {
+    id: iconProc
+    property string appId: ""
+    // $1 is a class, or "@0x…" for one window by address. Prints the program
+    // name, its executable path, the names of up to four parent processes,
+    // "--", then the names of the processes running inside it (two levels).
+    // Only process names (comm) and the executable path are read: never a
+    // command line, which can hold secrets (e.g. the Windows VM password
+    // passed to xfreerdp).
+    command: ["bash", "-c",
+      'if [[ $1 == @* ]]; then f=\'.address == $c\'; c=${1#@}; else f=\'.class == $c\'; c=$1; fi; '
+      + 'pid=$(hyprctl clients -j | jq -r --arg c "$c" "first(.[] | select($f) | .pid) // empty"); '
+      + '[[ $pid =~ ^[0-9]+$ ]] || exit 0; cat "/proc/$pid/comm"; readlink -f "/proc/$pid/exe"; p=$pid; '
+      + 'for _ in 1 2 3 4; do p=$(sed "s/.*) //" "/proc/$p/stat" 2>/dev/null | cut -d" " -f2); '
+      + '[[ $p =~ ^[0-9]+$ && $p -gt 1 ]] || break; cat "/proc/$p/comm"; done; echo --; '
+      + 'for c in $(cat /proc/"$pid"/task/*/children 2>/dev/null); do cat "/proc/$c/comm"; '
+      + 'for g in $(cat /proc/"$c"/task/*/children 2>/dev/null); do cat "/proc/$g/comm"; done; done', "omarchy-taskbar", appId]
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var lines = text.split("\n").map(function(line) { return line.trim() })
+        var split = lines.indexOf("--")
+        var parents = lines.slice(2, split === -1 ? lines.length : split)
+        var children = split === -1 ? [] : lines.slice(split + 1).filter(function(line) { return line !== "" })
+        var own = lines[0] || ""
+        var entry = root.windowsEntryFor(own)
+        if (iconProc.appId.charAt(0) === "@") {
+          // A terminal window: the app is what runs inside it.
+          for (var c = 0; !entry && c < children.length; c++) entry = root.appInside(children[c])
+        } else {
+          entry = entry || root.entryFor(own) || root.programs[own] || null
+          // Not found: the entry of a parent (the script that opened it).
+          for (var i = 0; !entry && i < parents.length; i++)
+            if (parents[i] in root.programs) entry = root.programs[parents[i]]
+        }
+        var exe = (lines[1] || "").trim()
+        var known = root.newDictionary(root.fallbacks)
+        known[iconProc.appId] = {
+          icon: entry && entry.icon ? entry.icon : "",
+          entry: entry ? entry.id : "",
+          // Only an absolute path to a real program; nothing else is run.
+          exe: /^\/[^\0\n]+$/.test(exe) ? exe : ""
+        }
+        root.fallbacks = known
+      }
+    }
+    onExited: root.nextIcon()
+  }
+
+  // ------------------------------------------------------------ the bar
+
+  Variants {
+    model: root.combined && Local.Bridge.modules > 0 ? [] : Quickshell.screens
+
+    delegate: Component {
+      PanelWindow {
+        id: barWindow
+        required property var modelData
+        // Combine with no module on Omarchy's bar yet: stay reachable at the bottom.
+        readonly property string position: root.combined ? "bottom" : root.configuredPosition
+        readonly property bool vertical: position === "left" || position === "right"
+        readonly property int screenLength: vertical ? modelData.height : modelData.width
+        readonly property int targetWidth: root.widthFor(root.configuredWidth, screenLength, root.barSize, root.crystal,
+          (vertical ? appRow.implicitHeight : appRow.implicitWidth) + (root.crystal ? Style.space(20) : 0))
+        readonly property int edgeMargin: root.crystal ? Style.space(8) : 0
+
+        BarDrag {
+          id: barDrag
+          surface: barWindow
+          bounds: barWindow.contentItem
+          buttons: appButtons
+          vertical: barWindow.vertical
+          popupEdge: root.popupEdgeFor(barWindow.position)
+          offset: Qt.point(barWindow.position === "right" ? modelData.width - barWindow.width - barWindow.margins.right : barWindow.margins.left,
+            barWindow.position === "bottom" ? modelData.height - barWindow.height - barWindow.margins.bottom : barWindow.margins.top)
+        }
+
+        screen: modelData
+        anchors {
+          top: position !== "bottom"
+          bottom: position !== "top"
+          left: position !== "right"
+          right: position !== "left"
+        }
+        // Keep three anchors so Auto still reserves the bar's thickness.
+        margins.left: vertical ? (position === "left" ? edgeMargin : 0) : Math.floor((screenLength - targetWidth) / 2)
+        margins.right: vertical ? (position === "right" ? edgeMargin : 0) : Math.ceil((screenLength - targetWidth) / 2)
+        margins.top: vertical ? Math.floor((screenLength - targetWidth) / 2) : (position === "top" ? edgeMargin : 0)
+        margins.bottom: vertical ? Math.ceil((screenLength - targetWidth) / 2) : (position === "bottom" ? edgeMargin : 0)
+        implicitWidth: root.barSize
+        implicitHeight: root.barSize
+        exclusionMode: ExclusionMode.Auto
+        color: root.crystal || root.transparent ? "transparent" : Commons.Color.bar.background
+        surfaceFormat.opaque: false
+        WlrLayershell.namespace: "omarchy-taskbar"
+        WlrLayershell.layer: WlrLayer.Top
+        onWidthChanged: barDrag.clearBarDrag()
+        onHeightChanged: barDrag.clearBarDrag()
+
+        Local.CrystalSurface {
+          anchors.fill: parent
+          visible: root.crystal
+          tint: Commons.Color.bar.background
+        }
+
+        DragGhostPanel { bar: barDrag }
+
+        PinDropArea { anchors.fill: parent }
+
+        // Empty bar space: appearance menu and double-click transparency.
+        MouseArea {
+          anchors.fill: parent
+          acceptedButtons: Qt.LeftButton | Qt.RightButton
+          onPressed: root.closeMenu()
+          onClicked: function(event) {
+            if (event.button === Qt.RightButton) {
+              barMenu.anchor.rect.x = event.x
+              barMenu.anchor.rect.y = event.y
+              root.showMenu(barMenu)
+            }
+          }
+          onDoubleClicked: function(event) {
+            if (event.button === Qt.LeftButton && !root.crystal) root.toggleTransparent()
+          }
+        }
+
+        Flickable {
+          id: appViewport
+          anchors.fill: parent
+          anchors.leftMargin: root.crystal && !barWindow.vertical ? Style.space(10) : 0
+          anchors.rightMargin: anchors.leftMargin
+          anchors.topMargin: root.crystal && barWindow.vertical ? Style.space(10) : 0
+          anchors.bottomMargin: anchors.topMargin
+          contentWidth: Math.max(width, appRow.width)
+          contentHeight: Math.max(height, appRow.height)
+          interactive: false
+          clip: true
+          onWidthChanged: contentX = Math.min(contentX, Math.max(0, contentWidth - width))
+          onContentWidthChanged: contentX = Math.min(contentX, Math.max(0, contentWidth - width))
+          onHeightChanged: contentY = Math.min(contentY, Math.max(0, contentHeight - height))
+          onContentHeightChanged: contentY = Math.min(contentY, Math.max(0, contentHeight - height))
+
+          WheelHandler {
+            target: null
+            onWheel: function(event) {
+              var range = barWindow.vertical ? appViewport.contentHeight - appViewport.height : appViewport.contentWidth - appViewport.width
+              if (range <= 0) { event.accepted = false; return }
+              var delta = event.pixelDelta.x || event.pixelDelta.y || (event.angleDelta.x || event.angleDelta.y) / 120 * root.barSize * 2
+              if (barWindow.vertical) appViewport.contentY = Math.max(0, Math.min(range, appViewport.contentY - delta))
+              else appViewport.contentX = Math.max(0, Math.min(range, appViewport.contentX - delta))
+              event.accepted = true
+            }
+          }
+
+          Grid {
+            id: appRow
+            x: Math.max(0, (appViewport.width - width) / 2)
+            y: Math.max(0, (appViewport.height - height) / 2)
+            columns: barWindow.vertical ? 1 : Math.max(1, root.apps.length)
+            spacing: Style.space(2)
+
+            Repeater {
+              id: appButtons
+              model: root.apps
+
+              delegate: AppButton {
+                required property var modelData
+                app: modelData
+                bar: barDrag
+              }
+            }
+          }
+        }
+
+        BarMenu {
+          id: barMenu
+          bar: barDrag
+        }
+      }
+    }
+  }
+
+  // ------------------------------------------------------------ Combine
+
+  property bool shellConfigLoaded: false
+  property bool onOmarchyBar: false
+  property bool placingBarWidget: false
+
+  onCombinedChanged: root.placeBarWidget()
+
+  function layoutHas(layout) {
+    if (!layout || typeof layout !== "object") return false
+    return ["left", "center", "right"].some(function(section) {
+      return Array.isArray(layout[section]) && layout[section].some(function(entry) {
+        return (entry && entry.id ? entry.id : entry) === root.pluginId
+      })
+    })
+  }
+
+  // Stays on the bar when leaving Combine (hidden), so coming back keeps its
+  // place. Omarchy only adds a widget it doesn't already know: an install from
+  // before Combine is listed as a panel, so it has to leave that list first.
+  // That unloads this panel, hence a detached shell that outlives it.
+  function placeBarWidget() {
+    if (!root.combined || !root.shellConfigLoaded || root.onOmarchyBar || root.placingBarWidget) return
+    root.placingBarWidget = true
+    Quickshell.execDetached(["bash", "-c",
+      'omarchy plugin disable "$1"; omarchy bar put "$1" --section left --after omarchy.workspaces || omarchy plugin enable "$1"',
+      "omarchy-taskbar", root.pluginId])
+  }
+
+  function popupEdgeFor(position) {
+    if (position === "bottom") return Edges.Top
+    if (position === "left") return Edges.Right
+    if (position === "right") return Edges.Left
+    return Edges.Bottom
+  }
+
+  // Omarchy's module slots in a bar window. A slot is recognised by the
+  // properties the bar gives it; its children are the module, not more slots.
+  function barSlots(item, found) {
+    var children = item.children
+    for (var i = 0; i < children.length; i++) {
+      var child = children[i]
+      if ("activeItem" in child && "region" in child) {
+        if (child.visible && child.width > 0) found.push(child)
+      } else root.barSlots(child, found)
+    }
+    return found
+  }
+
+  // Room left along the bar before the module's section touches the next one.
+  // Modules of its own section just move along. A center section can grow to
+  // either side, so it uses the tighter one.
+  function freeLength(own, slots, barLength) {
+    var first = own.start
+    var last = own.end
+    var before = 0
+    var after = barLength
+    slots.forEach(function(slot) {
+      if (slot.region === own.region) {
+        first = Math.min(first, slot.start)
+        last = Math.max(last, slot.end)
+      } else if (slot.start < own.start) before = Math.max(before, slot.end)
+      else after = Math.min(after, slot.start)
+    })
+    var free = own.region === "left" ? after - last
+      : own.region === "right" ? first - before
+      : Math.min(first - before, after - last)
+    return Math.max(0, free)
+  }
+
+  // What BarWidget.qml shows: the same buttons, menus and drag as the bar above,
+  // sized by Omarchy's bar. It grows with its icons up to the next section.
+  readonly property Component combinedModule: Component {
+    Item {
+      id: module
+
+      property var widget: null
+      readonly property var hostBar: widget ? widget.bar : null
+      readonly property bool vertical: !!hostBar && hostBar.vertical === true
+      readonly property string position: hostBar ? hostBar.position : "top"
+      readonly property var surface: module.QsWindow.window
+      readonly property int margin: Style.space(6)
+      readonly property real contentLength: (vertical ? moduleButtonsGrid.height : moduleButtonsGrid.width) + margin * 2
+      property real maxLength: root.barSize * 8
+      readonly property real length: Math.max(root.barSize, Math.min(contentLength, maxLength))
+
+      implicitWidth: vertical ? Style.bar.sizeVertical : length
+      implicitHeight: vertical ? length : root.barSize
+
+      Component.onCompleted: Local.Bridge.modules += 1
+      Component.onDestruction: Local.Bridge.modules -= 1
+
+      function updateMaxLength() {
+        if (!surface || !surface.contentItem) return
+        var slot = module
+        while (slot && !("activeItem" in slot)) slot = slot.parent
+        if (!slot) return
+        function along(item) {
+          var point = item.mapToItem(null, 0, 0)
+          var start = vertical ? point.y : point.x
+          return { region: item.region, start: start, end: start + (vertical ? item.height : item.width) }
+        }
+        var own = along(slot)
+        var free = root.freeLength(own, root.barSlots(surface.contentItem, []).map(along), vertical ? surface.height : surface.width)
+        maxLength = Math.max(root.barSize, own.end - own.start + free - Style.space(4))
+      }
+
+      // Neighbours change size on their own (clock, tray), with no signal here.
+      Timer {
+        interval: 1000
+        repeat: true
+        running: module.visible
+        triggeredOnStart: true
+        onTriggered: module.updateMaxLength()
+      }
+
+      BarDrag {
+        id: moduleDrag
+        surface: module.surface
+        bounds: module
+        buttons: moduleButtons
+        vertical: module.vertical
+        thickness: Style.bar.sizeVertical
+        sharedSurface: true
+        popupEdge: root.popupEdgeFor(module.position)
+        offset: module.surface && module.surface.screen
+          ? Qt.point(module.position === "right" ? module.surface.screen.width - module.surface.width : 0,
+            module.position === "bottom" ? module.surface.screen.height - module.surface.height : 0)
+          : Qt.point(0, 0)
+      }
+
+      DragGhostPanel { bar: moduleDrag }
+
+      // Default shows Omarchy's bar through; Crystal keeps its glass here too.
+      Local.CrystalSurface {
+        anchors.fill: parent
+        visible: root.crystal
+        tint: Commons.Color.bar.background
+      }
+
+      PinDropArea { anchors.fill: parent }
+
+      // Margin around the icons: right-click for the menu. A left press falls
+      // through to Omarchy's bar, which drags the whole module.
+      MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.RightButton
+        onPressed: root.closeMenu()
+        onClicked: function(event) {
+          var point = mapToItem(null, event.x, event.y)
+          moduleMenu.anchor.rect.x = point.x
+          moduleMenu.anchor.rect.y = point.y
+          root.showMenu(moduleMenu)
+        }
+      }
+
+      Flickable {
+        id: moduleViewport
+        anchors.fill: parent
+        anchors.leftMargin: module.vertical ? 0 : module.margin
+        anchors.rightMargin: anchors.leftMargin
+        anchors.topMargin: module.vertical ? module.margin : 0
+        anchors.bottomMargin: anchors.topMargin
+        contentWidth: moduleButtonsGrid.width
+        contentHeight: moduleButtonsGrid.height
+        interactive: false
+        clip: true
+        onWidthChanged: contentX = Math.min(contentX, Math.max(0, contentWidth - width))
+        onContentWidthChanged: contentX = Math.min(contentX, Math.max(0, contentWidth - width))
+        onHeightChanged: contentY = Math.min(contentY, Math.max(0, contentHeight - height))
+        onContentHeightChanged: contentY = Math.min(contentY, Math.max(0, contentHeight - height))
+
+        WheelHandler {
+          target: null
+          onWheel: function(event) {
+            var range = module.vertical ? moduleViewport.contentHeight - moduleViewport.height : moduleViewport.contentWidth - moduleViewport.width
+            if (range <= 0) { event.accepted = false; return }
+            var delta = event.pixelDelta.x || event.pixelDelta.y || (event.angleDelta.x || event.angleDelta.y) / 120 * root.barSize * 2
+            if (module.vertical) moduleViewport.contentY = Math.max(0, Math.min(range, moduleViewport.contentY - delta))
+            else moduleViewport.contentX = Math.max(0, Math.min(range, moduleViewport.contentX - delta))
+            event.accepted = true
+          }
+        }
+
+        Grid {
+          id: moduleButtonsGrid
+          columns: module.vertical ? 1 : Math.max(1, root.apps.length)
+          spacing: Style.space(2)
+
+          Repeater {
+            id: moduleButtons
+            model: root.apps
+
+            delegate: AppButton {
+              required property var modelData
+              app: modelData
+              bar: moduleDrag
+            }
+          }
+        }
+      }
+
+      BarMenu {
+        id: moduleMenu
+        bar: moduleDrag
+      }
+    }
+  }
+
+  component PinDropArea: DropArea {
+    keys: ["text/uri-list"]
+    onDropped: function(drop) {
+      if (!drop.hasUrls) return
+      var accepted = false
+      drop.urls.forEach(function(url) {
+        var path = root.droppedPath(url)
+        if (path === "") return
+        root.queuePinChange("add", path)
+        accepted = true
+      })
+      if (accepted) drop.accept(Qt.CopyAction)
+    }
+  }
+
+  // Omarchy's Bar.qml drag threshold, captured ghost and marker. Each bar owns
+  // its gesture; only the saved pins are shared.
+  component BarDrag: QtObject {
+    id: drag
+    required property var surface
+    required property var bounds
+    required property var buttons
+    property point offset: Qt.point(0, 0)
+    property bool vertical: false
+    property int popupEdge: Edges.Top
+    property int thickness: root.barSize
+    // On Omarchy's bar the window isn't ours: a click on its other modules must
+    // count as outside, or the open menu never hears about it.
+    property bool sharedSurface: false
+    readonly property var screen: surface ? surface.screen : null
+
+    property var barDragSource: null
+    property var barDragTarget: null
+    property bool barDragAfter: false
+    property int barDragIndex: -1
+    property var barDragTargetGeometry: null
+    property url barDragImageUrl: ""
+    property point barDragScreenPoint: Qt.point(0, 0)
+    property point barDragOffset: Qt.point(0, 0)
+
+    function clearBarDrag() {
+      barDragSource = null
+      barDragTarget = null
+      barDragAfter = false
+      barDragIndex = -1
+      barDragTargetGeometry = null
+      barDragImageUrl = ""
+      barDragScreenPoint = Qt.point(0, 0)
+      barDragOffset = Qt.point(0, 0)
+    }
+
+    function captureBarDragGhost(button) {
+      var item = button.activeItem
+      item.grabToImage(function(result) {
+        if (drag.barDragSource === button && result && result.url)
+          drag.barDragImageUrl = result.url
+      }, Qt.size(Math.max(1, Math.ceil(item.width)), Math.max(1, Math.ceil(item.height))))
+    }
+
+    function screenPoint(point) {
+      return Qt.point(point.x + offset.x, point.y + offset.y)
+    }
+
+    function updateBarDrag(button, x, y) {
+      var point = button.mapToItem(null, x, y)
+      barDragScreenPoint = screenPoint(point)
+      barDragTarget = null
+      barDragAfter = false
+      barDragIndex = -1
+      barDragTargetGeometry = null
+      var inside = button.mapToItem(bounds, x, y)
+      if (inside.x < 0 || inside.x >= bounds.width || inside.y < 0 || inside.y >= bounds.height) return
+      // Returning to the source icon is a no-op, including an unpinned app.
+      if (x >= 0 && x < button.width && y >= 0 && y < button.height) return
+
+      var along = vertical ? point.y : point.x
+      var bestDistance = Infinity
+      for (var i = 0; i < buttons.count; i++) {
+        var slot = buttons.itemAt(i)
+        if (!slot) continue
+        var start = slot.mapToItem(null, 0, 0)
+        var slotStart = vertical ? start.y : start.x
+        var slotLength = vertical ? slot.height : slot.width
+        var pinIndex = root.pinned.indexOf(slot.app.key)
+        var beforeDistance = Math.abs(along - slotStart)
+        var afterDistance = pinIndex < 0 ? Infinity : Math.abs(along - slotStart - slotLength)
+        var after = afterDistance < beforeDistance
+        var distance = Math.min(beforeDistance, afterDistance)
+        if (distance < bestDistance) {
+          bestDistance = distance
+          barDragTarget = slot
+          barDragAfter = after
+          barDragIndex = pinIndex < 0 ? root.pinned.length : pinIndex + (after ? 1 : 0)
+          var edge = slotStart + (after ? slotLength : 0)
+          var marker = screenPoint(vertical ? Qt.point(start.x, edge) : Qt.point(edge, start.y))
+          var thickness = Style.spacing.xs
+          barDragTargetGeometry = vertical
+            ? { x: marker.x, y: marker.y - thickness / 2, width: slot.width, height: thickness }
+            : { x: marker.x - thickness / 2, y: marker.y, width: thickness, height: slot.height }
+        }
+        // Pins stay first; the first running icon marks the end of them.
+        if (pinIndex < 0) break
+      }
+    }
+  }
+
+  component BarMenu: PopupWindow {
+    required property var bar
+    id: barMenu
+    property string page: "root"
+    property int currentIndex: 0
+    readonly property var items: root.barMenuItems(page)
+    onPageChanged: currentIndex = 0
+    function activate(index) {
+      var item = items[index]
+      if (!item) return
+      if (item.page !== undefined) { page = item.page; return }
+      root.closeMenu()
+      root.saveConfig(item.key, item.value)
+    }
+    visible: false
+    anchor.window: bar.surface
+    anchor.rect.width: 1
+    anchor.rect.height: 1
+    anchor.edges: bar.popupEdge
+    anchor.gravity: bar.popupEdge
+    anchor.margins.top: -Style.space(4)
+    anchor.margins.bottom: -Style.space(4)
+    anchor.margins.left: -Style.space(4)
+    anchor.margins.right: -Style.space(4)
+    implicitWidth: Style.space(238)
+    implicitHeight: settingsColumn.implicitHeight + Style.space(8)
+    color: "transparent"
+
+    Rectangle {
+      anchors.fill: parent
+      focus: true
+      Keys.onEscapePressed: root.closeMenu()
+      Keys.onUpPressed: barMenu.currentIndex = (barMenu.currentIndex + barMenu.items.length - 1) % barMenu.items.length
+      Keys.onDownPressed: barMenu.currentIndex = (barMenu.currentIndex + 1) % barMenu.items.length
+      Keys.onReturnPressed: barMenu.activate(barMenu.currentIndex)
+      Keys.onEnterPressed: barMenu.activate(barMenu.currentIndex)
+      Keys.onLeftPressed: { if (barMenu.page !== "root") barMenu.activate(0) }
+      Keys.onRightPressed: { if (barMenu.items[barMenu.currentIndex].page !== undefined) barMenu.activate(barMenu.currentIndex) }
+      color: Commons.Color.menu.background
+      border.color: Commons.Color.menu.border
+      border.width: Style.normalBorderWidth
+      radius: Style.cornerRadius
+
+      Column {
+        id: settingsColumn
+        anchors.centerIn: parent
+
+        Repeater {
+          model: barMenu.items
+          delegate: MenuRow {
+            required property var modelData
+            required property int index
+            width: barMenu.implicitWidth - Style.space(8)
+            text: modelData.label
+            checkable: modelData.key !== undefined
+            checked: modelData.checked === true
+            highlighted: barMenu.currentIndex === index
+            onHovered: barMenu.currentIndex = index
+            onTriggered: barMenu.activate(index)
+          }
+        }
+      }
+    }
+
+    onVisibleChanged: {
+      if (visible) {
+        page = "root"
+        currentIndex = 0
+        Qt.callLater(function() { settingsGrab.active = barMenu.visible })
+      } else settingsGrab.active = false
+    }
+
+    HyprlandFocusGrab {
+      id: settingsGrab
+      windows: bar.sharedSurface ? [barMenu] : [barMenu, bar.surface]
+      onCleared: if (root.openMenu === barMenu) root.closeMenu()
+    }
+  }
+
+  component DragGhostPanel: PanelWindow {
+    id: ghostWindow
+    required property var bar
+    readonly property var sourceItem: bar.barDragSource ? bar.barDragSource.activeItem : null
+    readonly property int ghostPadding: Style.space(1)
+
+    screen: bar.screen
+    visible: sourceItem !== null
+    color: "transparent"
+    exclusionMode: ExclusionMode.Ignore
+    WlrLayershell.namespace: "omarchy-taskbar-drag-ghost"
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+    anchors { top: true; bottom: true; left: true; right: true }
+    // Keep the pointer grab on the source icon, as in Omarchy's bar.
+    mask: Region {}
+
+    Item {
+      x: Math.round(bar.barDragScreenPoint.x - bar.barDragOffset.x - ghostWindow.ghostPadding)
+      y: Math.round(bar.barDragScreenPoint.y - bar.barDragOffset.y - ghostWindow.ghostPadding)
+      width: (ghostWindow.sourceItem ? ghostWindow.sourceItem.width : 1) + ghostWindow.ghostPadding * 2
+      height: (ghostWindow.sourceItem ? ghostWindow.sourceItem.height : 1) + ghostWindow.ghostPadding * 2
+
+      BorderSurface {
+        anchors.fill: parent
+        color: root.transparent ? "transparent" : Commons.Color.bar.background
+        borderSpec: Border.flat(root.foreground, 1)
+        radius: Math.min(Style.cornerRadius, height / 2)
+        opacity: root.transparent ? 0.45 : 0.94
+      }
+
+      Image {
+        anchors.fill: parent
+        anchors.margins: ghostWindow.ghostPadding
+        source: bar.barDragImageUrl
+        fillMode: Image.Stretch
+        smooth: true
+        opacity: 0.84
+      }
+    }
+
+    Rectangle {
+      readonly property var targetRect: bar.barDragTargetGeometry
+      visible: ghostWindow.visible && targetRect !== null
+      x: targetRect ? Math.round(targetRect.x) : 0
+      y: targetRect ? Math.round(targetRect.y) : 0
+      width: targetRect ? targetRect.width : 0
+      height: targetRect ? targetRect.height : 0
+      color: Commons.Color.accent
+      radius: Math.min(width, height) / 2
+    }
+  }
+
+  component AppButton: Item {
+    id: button
+
+    property var app
+    required property var bar
+    readonly property var activeItem: appVisual
+    readonly property bool dragSource: bar.barDragSource === button
+    readonly property var windows: root.windowsFor(app.key)
+    readonly property bool running: windows.length > 0
+    readonly property bool focused: windows.some(function(toplevel) { return toplevel.activated })
+    // App name; a window without a desktop entry uses its own title.
+    // Several windows: "Name (3)".
+    readonly property string label: {
+      var name = app.entry ? app.entry.name : ""
+      if (name === "" && windows.length > 0) name = windows[0].title || ""
+      if (name === "") name = app.appId || String(app.exe || "").split("/").pop()
+      return windows.length > 1 ? name + " (" + windows.length + ")" : name
+    }
+
+    width: bar.vertical ? bar.thickness : root.barSize + Style.space(8)
+    height: root.barSize
+
+    Component.onDestruction: if (bar.barDragSource === button) bar.clearBarDrag()
+
+    BorderSurface {
+      visible: button.dragSource
+      anchors.fill: parent
+      anchors.margins: Style.space(1)
+      color: root.transparent ? "transparent" : Commons.Color.bar.background
+      borderSpec: Border.flat(root.foreground, 1)
+      radius: Math.min(Style.cornerRadius, height / 2)
+      opacity: root.transparent ? 0.22 : 0.32
+    }
+
+    Item {
+      id: appVisual
+      anchors.fill: parent
+      opacity: button.dragSource ? 0.22 : 1.0
+
+      Rectangle {
+        anchors.fill: parent
+        anchors.topMargin: Style.space(2)
+        anchors.bottomMargin: Style.space(2)
+        radius: Style.cornerRadius
+        color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+        visible: mouse.containsMouse || menu.visible
+      }
+
+      Image {
+        anchors.centerIn: parent
+        anchors.verticalCenterOffset: -1
+        width: root.iconSize
+        height: root.iconSize
+        sourceSize.width: root.iconSize * 2
+        sourceSize.height: root.iconSize * 2
+        source: root.iconFor(button.app)
+        fillMode: Image.PreserveAspectFit
+        smooth: true
+        mipmap: true
+      }
+
+      Rectangle {
+        readonly property int mark: button.focused ? Style.space(12) : Style.space(4)
+        x: bar.vertical ? (bar.popupEdge === Edges.Right ? parent.width - width - 1 : 1) : (parent.width - width) / 2
+        y: bar.vertical ? (parent.height - height) / 2 : parent.height - height - 1
+        width: bar.vertical ? 2 : mark
+        height: bar.vertical ? mark : 2
+        radius: 1
+        visible: button.running
+        color: button.focused ? Commons.Color.accent : root.foreground
+        Behavior on width { NumberAnimation { duration: 120 } }
+        Behavior on height { NumberAnimation { duration: 120 } }
+      }
+    }
+
+    MouseArea {
+      id: mouse
+      property bool dragging: false
+      property bool suppressClick: false
+      property real pressedX: 0
+      property real pressedY: 0
+      readonly property real dragThreshold: Style.space(4)
+
+      anchors.fill: parent
+      hoverEnabled: true
+      acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+      cursorShape: dragging ? Qt.ClosedHandCursor : Qt.ArrowCursor
+      // Row owns the button's position. Move only the overlay ghost.
+      onPressed: function(event) {
+        dragging = false
+        suppressClick = false
+        pressedX = event.x
+        pressedY = event.y
+        bar.clearBarDrag()
+      }
+      onPositionChanged: function(event) {
+        if (!pressed || !(event.buttons & Qt.LeftButton) || (!root.isPinned(button.app.key) && !root.canPin(button.app))) return
+        var distance = Math.abs(event.x - pressedX) + Math.abs(event.y - pressedY)
+        if (!dragging && distance >= dragThreshold) {
+          root.closeMenu()
+          bar.barDragOffset = Qt.point(pressedX, pressedY)
+          bar.captureBarDragGhost(button)
+          bar.barDragSource = button
+          dragging = true
+        }
+        if (dragging && bar.barDragSource === button) bar.updateBarDrag(button, event.x, event.y)
+      }
+      onReleased: function(event) {
+        var wasDragging = dragging
+        if (wasDragging && bar.barDragSource === button) bar.updateBarDrag(button, event.x, event.y)
+        var index = bar.barDragIndex
+        suppressClick = wasDragging
+        dragging = false
+        bar.clearBarDrag()
+        if (wasDragging && index >= 0) root.movePin(button.app, index)
+      }
+      onCanceled: {
+        dragging = false
+        suppressClick = true
+        bar.clearBarDrag()
+      }
+      onClicked: function(event) {
+        if (suppressClick) {
+          suppressClick = false
+          return
+        }
+        if (event.button === Qt.RightButton) {
+          if (menu.visible) root.closeMenu()
+          else if (!bar.sharedSurface || !root.justClosed(menu)) root.showMenu(menu)
+          return
+        }
+        // Several windows: pick one from the list (it may be on another workspace).
+        if (event.button === Qt.LeftButton && button.windows.length > 1) {
+          if (windowList.visible) root.closeMenu()
+          else if (!bar.sharedSurface || !root.justClosed(windowList)) root.showMenu(windowList)
+          return
+        }
+        root.closeMenu()
+        if (event.button === Qt.LeftButton) root.activate(button.app)
+        else root.launch(button.app)
+      }
+    }
+
+    // Its own popup above the icon: a tooltip inside the bar window would be
+    // clipped to the bar's height.
+    Timer {
+      id: tipDelay
+      interval: 400
+      running: mouse.containsMouse && !mouse.dragging && !menu.visible && !windowList.visible
+    }
+
+    // The app's windows, each with its workspace; a click jumps to it.
+    PopupWindow {
+      id: windowList
+      visible: false
+      anchor.item: button
+      anchor.edges: bar.popupEdge
+      anchor.gravity: bar.popupEdge
+      anchor.margins.top: -Style.space(4)
+      anchor.margins.bottom: -Style.space(4)
+      anchor.margins.left: -Style.space(4)
+      anchor.margins.right: -Style.space(4)
+      implicitWidth: windowColumn.implicitWidth + Style.space(8)
+      implicitHeight: windowColumn.implicitHeight + Style.space(8)
+      color: "transparent"
+
+      Rectangle {
+        anchors.fill: parent
+        focus: true
+        Keys.onEscapePressed: root.closeMenu()
+        color: Commons.Color.menu.background
+        border.color: Commons.Color.menu.border
+        border.width: Style.normalBorderWidth
+        radius: Style.cornerRadius
+
+        // Side by side, like other taskbars' window previews.
+        Row {
+          id: windowColumn
+          anchors.centerIn: parent
+          spacing: Style.space(2)
+
+          Repeater {
+            model: button.windows
+            delegate: WindowRow {
+              required property var modelData
+              toplevel: modelData
+              capture: windowList.visible
+              icon: root.iconFor(button.app)
+              title: modelData.title || button.label
+              workspace: windowList.visible ? root.workspaceOf(modelData) : ""
+              current: modelData.activated
+              // Jump first: closing the list can tear the row down.
+              onTriggered: {
+                var target = modelData
+                root.focusWindow(target)
+                root.closeMenu()
+              }
+              // Close just this window; the list follows it, or goes when
+              // it was the last one.
+              onCloseRequested: {
+                var last = button.windows.length <= 1
+                modelData.close()
+                if (last) root.closeMenu()
+              }
+            }
+          }
+        }
+      }
+
+      onVisibleChanged: {
+        if (visible) Qt.callLater(function() { listGrab.active = windowList.visible })
+        else listGrab.active = false
+      }
+
+      HyprlandFocusGrab {
+        id: listGrab
+        windows: bar.sharedSurface ? [windowList] : [windowList, button.QsWindow.window]
+        onCleared: if (root.openMenu === windowList) root.closeMenu()
+      }
+    }
+
+    PopupWindow {
+      id: tip
+      visible: mouse.containsMouse && !mouse.dragging && !menu.visible && !windowList.visible && !tipDelay.running
+      anchor.item: button
+      anchor.edges: bar.popupEdge
+      anchor.gravity: bar.popupEdge
+      anchor.margins.top: -Style.space(6)
+      anchor.margins.bottom: -Style.space(6)
+      anchor.margins.left: -Style.space(6)
+      anchor.margins.right: -Style.space(6)
+      implicitWidth: tipLabel.implicitWidth + Style.space(16)
+      implicitHeight: tipLabel.implicitHeight + Style.space(10)
+      color: "transparent"
+
+      BorderSurface {
+        anchors.fill: parent
+        color: Commons.Color.tooltip.background
+        borderSpec: Border.surfaceSpec("tooltip", "border", Commons.Color.tooltip.border, Style.normalBorderWidth)
+        radius: Style.cornerRadius
+
+        Text {
+          id: tipLabel
+          anchors.centerIn: parent
+          textFormat: Text.PlainText
+          text: button.label
+          color: Commons.Color.tooltip.text
+          font.family: Style.font.family
+          font.pixelSize: Style.font.bodySmall
+        }
+      }
+    }
+
+    PopupWindow {
+      id: menu
+      visible: false
+      anchor.item: button
+      anchor.edges: bar.popupEdge
+      anchor.gravity: bar.popupEdge
+      anchor.margins.top: -Style.space(4)
+      anchor.margins.bottom: -Style.space(4)
+      anchor.margins.left: -Style.space(4)
+      anchor.margins.right: -Style.space(4)
+      implicitWidth: menuColumn.implicitWidth + Style.space(8)
+      implicitHeight: menuColumn.implicitHeight + Style.space(8)
+      color: "transparent"
+
+      Rectangle {
+        anchors.fill: parent
+        focus: true
+        Keys.onEscapePressed: root.closeMenu()
+        color: Commons.Color.menu.background
+        border.color: Commons.Color.menu.border
+        border.width: Style.normalBorderWidth
+        radius: Style.cornerRadius
+
+        Column {
+          id: menuColumn
+          anchors.centerIn: parent
+
+          MenuRow {
+            text: root.isPinned(button.app.key) ? root.t("Unpin", "Desanclar") : root.t("Pin", "Anclar")
+            shown: root.canPin(button.app) || root.isPinned(button.app.key)
+            onTriggered: { root.closeMenu(); root.togglePin(button.app.key) }
+          }
+          MenuRow {
+            text: root.t("Change icon…", "Cambiar icono…")
+            shown: root.isPinned(button.app.key)
+            onTriggered: { iconFileDialog.appKey = button.app.key; iconFileDialog.open(); root.closeMenu() }
+          }
+          MenuRow {
+            text: root.t("Restore icon", "Restaurar icono")
+            shown: typeof root.customIcons[button.app.key] === "string"
+            onTriggered: { root.queuePinChange("unicon", button.app.key, ""); root.closeMenu() }
+          }
+          MenuRow {
+            text: root.t("New window", "Nueva ventana")
+            shown: root.canLaunch(button.app)
+            onTriggered: { root.closeMenu(); root.launch(button.app) }
+          }
+          MenuRow {
+            text: button.windows.length > 1 ? root.t("Close all", "Cerrar todas") : root.t("Close", "Cerrar")
+            shown: button.running
+            onTriggered: { root.closeMenu(); root.closeAll(button.app) }
+          }
+        }
+      }
+
+      // Outside-click dismissal, as in Omarchy's PopupCard: while the grab is
+      // active input only reaches the menu and the bar; a click anywhere else
+      // clears it. Armed once the menu is mapped, or Hyprland ignores it.
+      onVisibleChanged: {
+        if (visible) Qt.callLater(function() { grab.active = menu.visible })
+        else grab.active = false
+      }
+
+      HyprlandFocusGrab {
+        id: grab
+        windows: bar.sharedSurface ? [menu] : [menu, button.QsWindow.window]
+        onCleared: if (root.openMenu === menu) root.closeMenu()
+      }
+    }
+  }
+
+  // A row of the window list: a thumbnail, then the title on the left and the
+  // workspace on the right. The thumbnail is one frame taken while the list
+  // is open (not live, never stored); without one the app icon stands in.
+  component WindowRow: Rectangle {
+    id: windowRow
+
+    property var toplevel
+    property bool capture: false
+    property string icon
+    property string title
+    property string workspace
+    property bool current: false
+    signal triggered()
+    signal closeRequested()
+
+    readonly property int thumbWidth: Style.space(220)
+    readonly property int thumbHeight: Math.round(thumbWidth * 9 / 16)
+
+    width: thumbWidth + Style.space(24)
+    height: thumbHeight + windowTitle.implicitHeight + Style.space(24)
+    radius: Style.cornerRadius
+    color: windowMouse.containsMouse ? Commons.Color.menu.selectedBackground : "transparent"
+
+    Rectangle {
+      id: thumbFrame
+      anchors.top: parent.top
+      anchors.topMargin: Style.space(8)
+      anchors.horizontalCenter: parent.horizontalCenter
+      width: windowRow.thumbWidth
+      height: windowRow.thumbHeight
+      radius: Style.cornerRadius
+      color: Qt.rgba(0, 0, 0, 0.25)
+      border.width: windowRow.current ? Style.normalBorderWidth : 0
+      border.color: Commons.Color.accent
+      clip: true
+
+      Loader {
+        id: thumbLoader
+        anchors.fill: parent
+        anchors.margins: Style.space(2)
+        active: windowRow.capture && !!windowRow.toplevel
+        sourceComponent: ScreencopyView {
+          captureSource: windowRow.toplevel
+          live: false
+          paintCursor: false
+          constraintSize: Qt.size(thumbLoader.width, thumbLoader.height)
+        }
+      }
+
+      Image {
+        anchors.centerIn: parent
+        width: windowRow.thumbHeight / 2
+        height: width
+        visible: !(thumbLoader.item && thumbLoader.item.hasContent)
+        source: windowRow.icon
+        sourceSize.width: width * 2
+        sourceSize.height: height * 2
+        fillMode: Image.PreserveAspectFit
+      }
+    }
+
+    Text {
+      id: windowTitle
+      textFormat: Text.PlainText
+      anchors.top: thumbFrame.bottom
+      anchors.topMargin: Style.space(6)
+      anchors.left: parent.left
+      anchors.leftMargin: Style.space(12)
+      width: Math.min(implicitWidth, windowRow.width - windowSpace.implicitWidth - Style.space(36))
+      elide: Text.ElideRight
+      text: windowRow.title
+      font.bold: windowRow.current
+      color: windowMouse.containsMouse ? Commons.Color.menu.selectedText : Commons.Color.menu.text
+      font.family: Style.font.family
+      font.pixelSize: Style.font.body
+    }
+
+    Text {
+      id: windowSpace
+      textFormat: Text.PlainText
+      anchors.verticalCenter: windowTitle.verticalCenter
+      anchors.right: parent.right
+      anchors.rightMargin: Style.space(12)
+      text: windowRow.workspace === "" ? "" : root.t("Workspace ", "Escritorio ") + windowRow.workspace
+      color: windowMouse.containsMouse ? Commons.Color.menu.selectedText : Commons.Color.accent
+      font.family: Style.font.family
+      font.pixelSize: Style.font.bodySmall
+    }
+
+    // Middle click closes the window too, as on other taskbars.
+    MouseArea {
+      id: windowMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+      onClicked: function(event) {
+        if (event.button === Qt.MiddleButton) windowRow.closeRequested()
+        else windowRow.triggered()
+      }
+    }
+
+    // Close button in the thumbnail's corner, like a window's own, shown while
+    // hovering the row. Follows the theme's rounding and turns urgent on hover.
+    Rectangle {
+      anchors.top: thumbFrame.top
+      anchors.right: thumbFrame.right
+      width: closeGlyph.implicitHeight + Style.space(8)
+      height: width
+      radius: Style.cornerRadius
+      visible: windowMouse.containsMouse || closeMouse.containsMouse
+      color: closeMouse.containsMouse ? Commons.Color.urgent : Commons.Color.menu.background
+
+      Text {
+        id: closeGlyph
+        anchors.centerIn: parent
+        textFormat: Text.PlainText
+        text: "\u{F0156}"
+        color: closeMouse.containsMouse ? Commons.Color.background : Commons.Color.menu.text
+        font.family: Style.font.family
+        font.pixelSize: Style.font.bodySmall
+      }
+
+      MouseArea {
+        id: closeMouse
+        anchors.fill: parent
+        hoverEnabled: true
+        onClicked: windowRow.closeRequested()
+      }
+    }
+  }
+
+  component MenuRow: Rectangle {
+    id: row
+
+    property string text
+    property bool shown: true
+    property bool checkable: false
+    property bool checked: false
+    property bool highlighted: false
+    readonly property int checkWidth: checkable ? Style.space(20) : 0
+    signal triggered()
+    signal hovered()
+
+    visible: shown
+    width: Math.max(Style.space(140), rowLabel.implicitWidth + Style.space(24) + checkWidth)
+    height: shown ? rowLabel.implicitHeight + Style.space(12) : 0
+    radius: Style.cornerRadius
+    color: (row.highlighted || rowMouse.containsMouse) ? Commons.Color.menu.selectedBackground : "transparent"
+
+    Text {
+      textFormat: Text.PlainText
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.left: parent.left
+      anchors.leftMargin: Style.space(12)
+      width: row.checkWidth
+      text: row.checked ? "✓" : ""
+      visible: row.checkable
+      color: rowLabel.color
+      font: rowLabel.font
+    }
+
+    Text {
+      id: rowLabel
+      textFormat: Text.PlainText
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.left: parent.left
+      anchors.leftMargin: Style.space(12) + row.checkWidth
+      text: row.text
+      color: (row.highlighted || rowMouse.containsMouse) ? Commons.Color.menu.selectedText : Commons.Color.menu.text
+      font.family: Style.font.family
+      font.pixelSize: Style.font.body
+    }
+
+    MouseArea {
+      id: rowMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      onEntered: row.hovered()
+      onClicked: row.triggered()
+    }
+  }
+}
