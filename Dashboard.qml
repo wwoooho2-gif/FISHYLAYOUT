@@ -14,6 +14,7 @@ Panel {
 
   property var anchorItem: null
   property var hostWidget: null
+  property string layoutPresetStatus: ""
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
 
@@ -34,12 +35,46 @@ Panel {
     cursorActionProcess.running = true
   }
 
+  function applyLayoutPreset() {
+    if (layoutPresetProcess.running)
+      return
+    layoutPresetStatus = "Applying bar layout…"
+    layoutPresetProcess.command = [
+      "bash",
+      decodeURIComponent(String(Qt.resolvedUrl("presets/apply-current-layout.sh")).replace(/^file:\/\//, ""))
+    ]
+    layoutPresetProcess.running = true
+  }
+
   Process {
     id: cursorActionProcess
 
     onExited: function(exitCode) {
       if (exitCode !== 0)
         console.warn("Omarchy Suite: cursor command failed with exit code " + exitCode)
+    }
+  }
+
+  Process {
+    id: layoutPresetProcess
+
+    stdout: StdioCollector {
+      id: layoutPresetStdout
+      waitForEnd: true
+    }
+
+    stderr: StdioCollector {
+      id: layoutPresetStderr
+      waitForEnd: true
+    }
+
+    onExited: function(exitCode) {
+      var output = String(exitCode === 0 ? layoutPresetStdout.text : layoutPresetStderr.text).trim()
+      root.layoutPresetStatus = exitCode === 0
+        ? (output || "Bar layout applied. The FISHYLAYOUT icon stays on the bar.")
+        : (output || "Could not apply the bar layout.")
+      if (exitCode !== 0)
+        console.warn("FISHYLAYOUT: could not apply the bar preset:", output || "unknown error")
     }
   }
 
@@ -87,6 +122,38 @@ Panel {
             font.pixelSize: Style.font.body
             wrapMode: Text.WordWrap
             opacity: 0.75
+          }
+
+          RowLayout {
+            Layout.fillWidth: true
+            spacing: Style.space(10)
+
+            Button {
+              text: layoutPresetProcess.running ? "Applying preset…" : "Apply bar preset"
+              enabled: !layoutPresetProcess.running
+              onClicked: root.applyLayoutPreset()
+            }
+
+            Text {
+              Layout.fillWidth: true
+              text: "Restores the screenshot layout and backs up your current bar settings. Standalone plugin icons appear only if those plugins are installed."
+              color: root.contentForeground
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+              opacity: 0.75
+            }
+          }
+
+          Text {
+            Layout.fillWidth: true
+            visible: root.layoutPresetStatus !== ""
+            text: root.layoutPresetStatus
+            textFormat: Text.PlainText
+            color: root.contentForeground
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
           }
 
           GridLayout {
