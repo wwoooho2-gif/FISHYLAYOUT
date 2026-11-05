@@ -11,6 +11,7 @@ BarWidget {
   property var dashboard: null
 
   readonly property bool opened: dashboard ? dashboard.opened === true : false
+  readonly property bool popoutSwitchClosing: dashboard ? dashboard.popoutSwitchClosing === true : false
 
   function injectDashboard() {
     if (!dashboardLoader.item)
@@ -26,6 +27,21 @@ BarWidget {
   function toggleDashboard() {
     if (dashboard)
       dashboard.toggle()
+  }
+
+  function open() {
+    if (dashboard)
+      dashboard.open()
+  }
+
+  function close() {
+    if (dashboard)
+      dashboard.close()
+  }
+
+  function closeForPopoutSwitch() {
+    if (dashboard)
+      dashboard.closeForPopoutSwitch()
   }
 
   implicitWidth: button.implicitWidth
