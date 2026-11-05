@@ -32,13 +32,13 @@ The original shell layout preset is preserved at
 The script replaces only the `bar` object in `~/.config/omarchy/shell.json`,
 preserves other shell settings, and creates a uniquely named backup first.
 You can apply the same preset using **Apply bar preset** in the FISHYLAYOUT
-dashboard. The FISHYLAYOUT icon stays on the bar; the other third-party icons
-appear only if their standalone plugins are installed.
+dashboard. The preset places the FISHYLAYOUT icon with Omarchy's built-in widgets. The
+bundled feature controls remain inside the FISHYLAYOUT dashboard rather than
+appearing as separate bar icons. This preset avoids references to optional
+third-party widgets that may not be installed.
 
-The preset uses the original standalone widget IDs. Those widgets must still
-be installed separately for the original multi-icon layout to render: this
-single native plugin exposes one bar-widget ID and does not register each
-bundled feature as an independent Omarchy widget.
+The workspace indicator is an optional Omarchy widget. Enable it with
+`omarchy plugin enable omarchy.workspaces` if it is not already enabled.
 
 ## Install
 

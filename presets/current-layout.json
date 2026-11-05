@@ -1,58 +1,34 @@
 {
   "bar": {
+    "background": "glassy",
     "centerAnchor": "omarchy.clock",
     "layout": {
+      "left": [
+        {
+          "id": "omarchy.menu"
+        },
+        {
+          "id": "omarchy.workspaces"
+        },
+        {
+          "id": "furina.omarchy-suite"
+        }
+      ],
+      "centerBegin": [],
       "center": [
         {
           "id": "omarchy.clock",
           "format": "dddd h:mm AP",
           "formatAlt": "d MMMM 'W'ww yyyy",
           "verticalFormat": "HH\n—\nmm"
-        },
-        {
-          "id": "omarchy.keyboard-layout"
-        },
+        }
+      ],
+      "centerEnd": [
         {
           "id": "omarchy.weather"
         },
         {
           "id": "omarchy.system-update"
-        },
-        {
-          "id": "bibek.media"
-        }
-      ],
-      "left": [
-        {
-          "id": "omarchy.menu"
-        },
-        {
-          "id": "io.github.kaplanhalil.quickdrawer",
-          "items": [
-            "caffeine",
-            "ext:omarchy.weather",
-            "ext:omaplug",
-            "ext:omarchy.menu",
-            "ext:io.github.salemsayed.omawarden",
-            "ext:omarchy.bluetooth",
-            "monitor",
-            "screensaver"
-          ]
-        },
-        {
-          "id": "io.github.salemsayed.omawarden"
-        },
-        {
-          "id": "omaplug"
-        },
-        {
-          "id": "lutfi.glass"
-        },
-        {
-          "id": "io.github.anooplamba.workspace-preview"
-        },
-        {
-          "id": "furina.omarchy-suite"
         }
       ],
       "right": [
@@ -60,8 +36,7 @@
           "id": "omarchy.tray"
         },
         {
-          "id": "vichu.gpu-monitor",
-          "displayMode": "Both"
+          "id": "omarchy.keyboard-layout"
         },
         {
           "id": "omarchy.agents"
@@ -70,10 +45,10 @@
           "id": "omarchy.bluetooth"
         },
         {
-          "id": "omarchy.audio"
+          "id": "omarchy.network"
         },
         {
-          "id": "omarchy.network"
+          "id": "omarchy.audio"
         },
         {
           "id": "omarchy.monitor"
@@ -81,7 +56,8 @@
         {
           "id": "omarchy.power"
         }
-      ]
+      ],
+      "tray": []
     },
     "position": "top",
     "transparent": false
