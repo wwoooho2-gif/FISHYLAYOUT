@@ -8,14 +8,11 @@ import qs.Ui
 // Quick Drawer: one bar mark that opens a card of quick toggles,
 // panel shortcuts and user-defined command tiles.
 //
-// This is a clone of omarchy.indicators on purpose. The clone keeps the
-// source-specific first-party service access (idle, night light,
-// notifications), which is what makes those toggles work without shelling
-// out and polling. Screensaver, suspend and touchpad are plain Omarchy
-// toggle flags, so they go through the CLI helpers.
+// Quick Drawer uses its own IPC target so it never conflicts with the
+// built-in omarchy.indicators widget.
 BarWidget {
   id: root
-  moduleName: "omarchy.indicators"
+  moduleName: "furina.omarchy-suite.quick-drawer"
 
   readonly property var idleService: bar && bar.shell
     ? bar.shell.firstPartyServiceFor("omarchy.idle") : null
@@ -136,6 +133,18 @@ BarWidget {
   readonly property real gridTileWidth: Math.max(1,
     Math.floor((gridScroll.width - (gridColumns - 1) * gridSpacing) / gridColumns))
 
+  Timer {
+    id: panelHostingTimer
+    interval: 0
+    onTriggered: root.applyPanelHosting()
+  }
+
+  Timer {
+    id: extensionRefreshTimer
+    interval: 0
+    onTriggered: root.refreshExtensions()
+  }
+
   implicitWidth: mark.implicitWidth
   implicitHeight: mark.implicitHeight
 
@@ -156,7 +165,7 @@ BarWidget {
   onDrawerOpenChanged: {
     if (drawerOpen) {
       refreshDynamic()
-      Qt.callLater(root.applyPanelHosting)
+      panelHostingTimer.restart()
     } else {
       cancelTileDrag()
       view = "grid"
@@ -165,8 +174,8 @@ BarWidget {
   }
 
   onSettingsChanged: root.reloadItems()
-  onCurrentItemsChanged: Qt.callLater(root.applyPanelHosting)
-  onBarChanged: Qt.callLater(root.applyPanelHosting)
+  onCurrentItemsChanged: panelHostingTimer.restart()
+  onBarChanged: panelHostingTimer.restart()
 
   onViewChanged: {
     if (!drawerOpen) return
@@ -180,8 +189,8 @@ BarWidget {
     reloadItems()
     refreshDynamic()
     if (!touchpadProbe.running) touchpadProbe.running = true
-    Qt.callLater(root.applyPanelHosting)
-    Qt.callLater(root.refreshExtensions)
+    panelHostingTimer.restart()
+    extensionRefreshTimer.restart()
   }
 
   function reloadItems() {
@@ -332,7 +341,7 @@ BarWidget {
     if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function")
       root.bar.shell.updateEntryInline(root.moduleName, entry)
     root.reloadItems()
-    Qt.callLater(root.applyPanelHosting)
+    panelHostingTimer.restart()
   }
 
   function setTileEnabled(id, enabled) {
@@ -713,7 +722,7 @@ BarWidget {
       })
     }
     extensionTiles = out
-    Qt.callLater(root.applyPanelHosting)
+    panelHostingTimer.restart()
   }
 
   function refreshExtensions() {
@@ -971,25 +980,31 @@ BarWidget {
   }
 
   function toggleCaffeine() {
-    // setIdleEnabled takes "idle enabled", which is the inverse of stay-awake.
-    // Passing the current stay-awake value is what toggles it.
-    if (idleService) idleService.setIdleEnabled(caffeineOn)
+    runOmarchyToggle(["idle"], "idle")
   }
 
   function toggleNightLight() {
-    if (nightlightService) nightlightService.setNightlight(!nightLightOn)
+    runOmarchyToggle(["nightlight"], "nightlight")
   }
 
   function toggleDnd() {
-    if (notificationService) notificationService.setDoNotDisturb(!dndOn)
+    runOmarchyToggle(["notification", "silencing"], "notification silencing")
   }
 
   function toggleScreensaver() {
-    if (!screensaverToggle.running) screensaverToggle.running = true
+    runOmarchyToggle(["screensaver"], "screensaver")
   }
 
   function toggleSuspend() {
-    if (!suspendToggle.running) suspendToggle.running = true
+    runOmarchyToggle(["suspend"], "suspend")
+  }
+
+  function runOmarchyToggle(args, name) {
+    if (omarchyToggle.running)
+      return
+    omarchyToggle.command = ["omarchy", "toggle"].concat(args)
+    omarchyToggle.actionName = name
+    omarchyToggle.running = true
   }
 
   function toggleTouchpad() {
@@ -997,7 +1012,7 @@ BarWidget {
   }
 
   IpcHandler {
-    target: "omarchy.indicators"
+    target: "furina.omarchy-suite.quick-drawer"
 
     function refresh(): void { root.refreshDynamic() }
     function open(): void { root.open() }
@@ -1046,15 +1061,15 @@ BarWidget {
   }
 
   Process {
-    id: screensaverToggle
-    command: ["omarchy-toggle-screensaver"]
-    onExited: function(code) { root.refreshFlags() }
-  }
+    id: omarchyToggle
+    property string actionName: ""
 
-  Process {
-    id: suspendToggle
-    command: ["omarchy-toggle-suspend"]
-    onExited: function(code) { root.refreshFlags() }
+    onExited: function(code) {
+      if (code !== 0)
+        console.warn("FISHYLAYOUT: Omarchy toggle failed (" + actionName + "), exit code " + code)
+      actionName = ""
+      root.refreshFlags()
+    }
   }
 
   Process {

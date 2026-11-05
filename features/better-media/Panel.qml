@@ -19,7 +19,7 @@ Panel {
     return false;
   }
 
-  readonly property var mediaService: (bar?.shell?.firstPartyServiceFor("bibek.media")) || MediaShared.ServiceBridge.service
+  readonly property var mediaService: MediaShared.ServiceBridge.service
   readonly property var activePlayer: mediaService ? mediaService.activePlayer : null
   readonly property var sourcePlayers: mediaService ? mediaService.sourcePlayers : []
 

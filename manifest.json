@@ -18,25 +18,9 @@
   },
   "barWidget": {
     "displayName": "Omarchy Suite",
-    "description": "Preview-matched workspace and GPU controls with a layout dashboard",
+    "description": "FISHYLAYOUT dashboard button",
     "category": "System",
-    "defaultSection": "right",
-    "allowMultiple": true,
-    "defaults": {
-      "segment": "left"
-    },
-    "schema": [
-      {
-        "key": "segment",
-        "type": "enum",
-        "label": "Bar group",
-        "options": [
-          "left",
-          "right"
-        ],
-        "defaultValue": "left",
-        "description": "Place workspace controls and the dashboard on the left, or the GPU monitor on the right."
-      }
-    ]
+    "defaultSection": "left",
+    "allowMultiple": false
   }
 }

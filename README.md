@@ -16,10 +16,11 @@ icons directly in the bar and includes a small layout dashboard. It bundles:
 The optional `omarchy-fx` plugin from the old installer is not included; it was
 a separate add-on, not part of the main plugin list.
 
-## Restore the original bar layout
+## Apply the preview bar layout
 
-The original shell layout preset is preserved at
-`presets/current-layout.json`. Apply it explicitly with:
+The preview bar layout is saved at `presets/current-layout.json`. Applying it
+replaces the bar layout (but preserves other settings in `shell.json`) and
+creates a backup first:
 
 | Anime wallpaper | Misty forest | Abstract wave |
 |---|---|---|
@@ -32,12 +33,14 @@ The original shell layout preset is preserved at
 The script replaces only the `bar` object in `~/.config/omarchy/shell.json`,
 preserves other shell settings, and creates a uniquely named backup first.
 You can apply the same preset using **Apply bar preset** in the FISHYLAYOUT
-dashboard. The preset matches the previews: Quick Drawer, Glass & Blur,
-workspaces, and the FISHYLAYOUT dashboard button on the left; the clock
-centered; and the GPU readout with display, audio, and network indicators on the
-right. Plugin Manager is available as a tile inside Quick Drawer, so it does
-not add another bar icon. Both suite groups are rendered by FISHYLAYOUT; no
-duplicate standalone widget copies are needed.
+dashboard. The preset places Quick Drawer, Plugin Manager, Glass & Blur, workspace preview,
+and the FISHYLAYOUT dashboard button on the left; media beside the centered
+clock; and the GPU readout, display, audio, network, and system-tray drawer on
+the right. Each FISHYLAYOUT bar feature is a separate bar item, so you can drag
+it independently to another section or reorder it beside other widgets.
+
+Applying this preset is not an Omarchy-default reset. Keep the printed backup
+path if you may want to restore the previous shell config later.
 
 ## Install
 
@@ -45,15 +48,24 @@ Run these commands on your Omarchy machine:
 
 ```bash
 omarchy plugin add https://github.com/wwoooho2-gif/FISHYLAYOUT.git --enable
-omarchy bar put furina.omarchy-suite
+bash ~/.config/omarchy/plugins/furina.omarchy-suite/presets/install-bar-widgets.sh
 ```
 
-The plugin has one Omarchy bar entry that renders the bundled feature icons.
-Its dashboard provides the preset action; the taskbar and Alt+Tab are loaded
-through the plugin's panel entry point.
+The setup script adds the FISHYLAYOUT dashboard, standalone feature widgets,
+and Omarchy's system tray for background app icons. Media is placed in
+`centerBegin`, beside the clock. It preserves other bar entries, creates a
+backup before changing `shell.json`, and can be run again safely. Drag each
+bar item on the bar to move or reorder it individually. Removing the plugin
+does not automatically restore your previous bar layout; use the backup
+created by the script if you want to restore the whole prior shell config.
+
+The taskbar and Alt+Tab are loaded through the plugin's panel entry point.
 Alt+Tab writes a generated Hyprland toggle loader under
 `~/.local/state/omarchy/toggles/hypr/` when the panel loads. Delete that loader
 and run `hyprctl reload` to restore Omarchy's built-in Alt+Tab behavior.
+Quick Drawer toggles use Omarchy's own toggle commands. The media controls
+appear on the bar when an MPRIS-compatible player is publishing playback
+metadata.
 The cursor theme-follow hooks are opt-in. After installation, run:
 
 ```bash
@@ -76,8 +88,9 @@ suite.
 
 ## Notes
 
-The preset uses two instances of the suite bar widget so its bundled controls
-can sit on both sides of the clock. The dashboard button remains on the left.
+The suite dashboard, Quick Drawer, Plugin Manager, Glass & Blur, workspace
+preview, GPU monitor, and Better Media each occupy their own bar entry. The
+media entry starts beside the clock and can be dragged elsewhere.
 
 Bundled source and its license/notice files are under `features/`:
 

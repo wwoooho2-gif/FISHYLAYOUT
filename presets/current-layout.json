@@ -8,11 +8,49 @@
           "id": "omarchy.menu"
         },
         {
-          "id": "furina.omarchy-suite",
-          "segment": "left"
+          "id": "furina.omarchy-suite"
+        },
+        {
+          "id": "furina.omarchy-suite.quick-drawer",
+          "type": "qml",
+          "source": "~/.config/omarchy/plugins/furina.omarchy-suite/features/bar-widgets/Standalone.qml",
+          "featurePath": "$HOME/.config/omarchy/plugins/furina.omarchy-suite/features/quick-drawer/Indicators.qml",
+          "items": [
+            "caffeine",
+            "nightlight",
+            "dnd",
+            "screensaver",
+            "suspend",
+            "ext:io.github.salemsayed.omawarden"
+          ]
+        },
+        {
+          "id": "furina.omarchy-suite.plugin-manager",
+          "type": "qml",
+          "source": "~/.config/omarchy/plugins/furina.omarchy-suite/features/bar-widgets/Standalone.qml",
+          "featurePath": "$HOME/.config/omarchy/plugins/furina.omarchy-suite/features/plugin-manager/BarWidget.qml"
+        },
+        {
+          "id": "furina.omarchy-suite.glass-blur",
+          "type": "qml",
+          "source": "~/.config/omarchy/plugins/furina.omarchy-suite/features/bar-widgets/Standalone.qml",
+          "featurePath": "$HOME/.config/omarchy/plugins/furina.omarchy-suite/features/glass-blur/Panel.qml"
+        },
+        {
+          "id": "furina.omarchy-suite.workspace-preview",
+          "type": "qml",
+          "source": "~/.config/omarchy/plugins/furina.omarchy-suite/features/bar-widgets/Standalone.qml",
+          "featurePath": "$HOME/.config/omarchy/plugins/furina.omarchy-suite/features/workspace-preview/WorkspacePreview.qml"
         }
       ],
-      "centerBegin": [],
+      "centerBegin": [
+        {
+          "id": "furina.omarchy-suite.media",
+          "type": "qml",
+          "source": "~/.config/omarchy/plugins/furina.omarchy-suite/features/bar-widgets/Standalone.qml",
+          "featurePath": "$HOME/.config/omarchy/plugins/furina.omarchy-suite/features/better-media/BarWidget.qml"
+        }
+      ],
       "center": [
         {
           "id": "omarchy.clock",
@@ -24,8 +62,13 @@
       "centerEnd": [],
       "right": [
         {
-          "id": "furina.omarchy-suite",
-          "segment": "right"
+          "id": "furina.omarchy-suite.gpu-monitor",
+          "type": "qml",
+          "source": "~/.config/omarchy/plugins/furina.omarchy-suite/features/bar-widgets/Standalone.qml",
+          "featurePath": "$HOME/.config/omarchy/plugins/furina.omarchy-suite/features/gpu-monitor/BarWidget.qml"
+        },
+        {
+          "id": "omarchy.tray"
         },
         {
           "id": "omarchy.monitor"

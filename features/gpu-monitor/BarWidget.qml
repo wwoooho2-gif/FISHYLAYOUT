@@ -81,13 +81,13 @@ BarWidget {
     var idx = root.modeRing.indexOf(current)
     var next = root.modeRing[(idx + 1) % root.modeRing.length]
 
-    var entry = { id: "furina.omarchy-suite" }
+    var entry = { id: root.moduleName }
     for (var key in root.settings) if (key !== "id") entry[key] = root.settings[key]
     entry.displayMode = next
 
     root.settings = entry
     if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function")
-      root.bar.shell.updateEntryInline("furina.omarchy-suite", entry)
+      root.bar.shell.updateEntryInline(root.moduleName, entry)
   }
 
   // ---- panel forwarding (shape contract for shell.summon/hide/toggle) ----

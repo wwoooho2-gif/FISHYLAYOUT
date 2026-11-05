@@ -573,13 +573,17 @@ Item {
   // and the Instantiator wires isPlayingChanged for each live player.
   Component.onCompleted: {
     MediaShared.ServiceBridge.service = root;
-    root.syncPlayingOrder() && root.syncCliampPoll();
+    root.syncPlayingOrder();
+    root.syncCliampPoll();
   }
   Component.onDestruction: {
     if (MediaShared.ServiceBridge.service === root)
       MediaShared.ServiceBridge.service = null;
   }
-  onPlayersChanged: root.syncPlayingOrder() && root.syncCliampPoll()
+  onPlayersChanged: {
+    root.syncPlayingOrder();
+    root.syncCliampPoll();
+  }
 
   Instantiator {
     model: root.players
@@ -632,7 +636,7 @@ Item {
   }
 
   IpcHandler {
-    target: "media"
+    target: "furina.omarchy-suite.media"
 
     function status(): string {
       return root.statusJson();

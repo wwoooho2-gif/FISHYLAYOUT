@@ -8,7 +8,7 @@ BarWidget {
   id: root
   moduleName: "bibek.media"
 
-  readonly property var mediaService: (bar?.shell?.firstPartyServiceFor("bibek.media")) || MediaShared.ServiceBridge.service
+  readonly property var mediaService: MediaShared.ServiceBridge.service
   readonly property var activePlayer: mediaService ? mediaService.activePlayer : null
   readonly property var sourcePlayers: mediaService ? mediaService.sourcePlayers : []
 
@@ -54,6 +54,12 @@ BarWidget {
   function closeForPopoutSwitch() {
     if (panelLoader.item)
       panelLoader.item.closeForPopoutSwitch();
+  }
+
+  Timer {
+    id: panelInjectionTimer
+    interval: 0
+    onTriggered: root.injectPanel()
   }
 
   property real maxLabelWidth: 180
@@ -136,15 +142,15 @@ BarWidget {
       root.bar.hideTooltip(root)
   }
 
-  onBarChanged: Qt.callLater(injectPanel)
-  onSettingsChanged: Qt.callLater(injectPanel)
-  Component.onCompleted: Qt.callLater(injectPanel)
+  onBarChanged: panelInjectionTimer.restart()
+  onSettingsChanged: panelInjectionTimer.restart()
+  Component.onCompleted: panelInjectionTimer.restart()
 
   Loader {
     id: panelLoader
     active: true
     source: Qt.resolvedUrl("Panel.qml")
     visible: false
-    onLoaded: Qt.callLater(root.injectPanel)
+    onLoaded: panelInjectionTimer.restart()
   }
 }
