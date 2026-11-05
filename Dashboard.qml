@@ -136,7 +136,7 @@ Panel {
 
             Text {
               Layout.fillWidth: true
-              text: "Restores the screenshot layout and backs up your current bar settings. Standalone plugin icons appear only if those plugins are installed."
+              text: "Applies the saved bar layout and backs up your current settings. Standalone plugin icons appear only if those plugins are installed."
               color: root.contentForeground
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
