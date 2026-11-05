@@ -36,11 +36,10 @@ bundled feature as an independent Omarchy widget.
 
 ## Install
 
-For the single dashboard, run on your Omarchy machine, replacing the URL with
-your private repository:
+For the single dashboard, run these commands on your Omarchy machine:
 
 ```bash
-omarchy plugin add https://github.com/YOUR-ACCOUNT/YOUR-PRIVATE-REPO.git --enable
+omarchy plugin add https://github.com/wwoooho2-gif/FISHYLAYOUT.git --enable
 omarchy bar put furina.omarchy-suite
 ```
 
