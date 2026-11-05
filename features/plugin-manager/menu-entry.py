@@ -13,8 +13,10 @@ ENTRY = {
     "icon": "󱓖", "label": "Omaplug",
     "description": "Manage Omarchy plugins with Omaplug",
     "aliases": ["omaplug", "plugins"],
-    "action": "omarchy-shell shell toggle omaplug",
+    "action": "omarchy-shell furina.omarchy-suite.plugin-manager toggle",
 }
+# Earlier versions pointed at a module that does not exist in this suite.
+PREVIOUS_ENTRY = dict(ENTRY, action="omarchy-shell shell toggle omaplug")
 ENTRY_KEY = "apps.omaplug"
 LEGACY_KEY = "omaplug"
 LEGACY_ENTRY = dict(ENTRY, label="Plugin Manager")
@@ -52,7 +54,7 @@ def render(raw, enabled):
     blocks = BLOCK.findall(raw)
     if len(blocks) > 1:
         raise ValueError("Multiple Omaplug menu entries found; please review the menu file.")
-    if blocks and entries.get(ENTRY_KEY) not in (ENTRY, OLD_ACTION_ENTRY) and entries.get(LEGACY_KEY) != LEGACY_ENTRY:
+    if blocks and entries.get(ENTRY_KEY) not in (ENTRY, PREVIOUS_ENTRY, OLD_ACTION_ENTRY) and entries.get(LEGACY_KEY) != LEGACY_ENTRY:
         raise ValueError("The Omaplug menu entry was edited; please review it before changing this setting.")
     if not blocks and "omaplug" in entries:
         raise ValueError("An existing custom Omaplug menu entry must be managed manually.")

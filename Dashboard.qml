@@ -20,7 +20,7 @@ Panel {
 
   function runCursorAction(action) {
     cursorActionProcess.command = [
-      Qt.resolvedUrl("features/cursor-accent/cursor-accent").toString().replace(/^file:\/\//, ""),
+      decodeURIComponent(Qt.resolvedUrl("features/cursor-accent/cursor-accent").toString().replace(/^file:\/\//, "")),
       action
     ]
     cursorActionProcess.running = true

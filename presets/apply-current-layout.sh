@@ -36,9 +36,13 @@ if ! jq -e 'type == "object"' "$shell_config" >/dev/null; then
 fi
 
 temporary_config="$(mktemp "${shell_config}.tmp.XXXXXXXX")"
-backup="$(mktemp "${shell_config}.bak.XXXXXXXX")"
+backup=""
 cleanup() {
   rm -f -- "$temporary_config"
+  # Remove the backup placeholder if we bail out before it holds a real copy.
+  if [[ -n $backup && ! -s $backup ]]; then
+    rm -f -- "$backup"
+  fi
 }
 trap cleanup EXIT
 
@@ -52,6 +56,7 @@ if ! chmod --reference="$shell_config" "$temporary_config"; then
   exit 1
 fi
 
+backup="$(mktemp "${shell_config}.bak.XXXXXXXX")"
 if ! cp -- "$shell_config" "$backup"; then
   printf 'Failed to back up shell config; config was not changed.\n' >&2
   exit 1

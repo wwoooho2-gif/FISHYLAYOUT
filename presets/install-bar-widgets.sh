@@ -73,7 +73,7 @@ if ! jq \
       "furina.omarchy-suite.quick-drawer";
       "features/quick-drawer/Indicators.qml";
       "left";
-      ["caffeine", "nightlight", "dnd", "screensaver", "suspend", "ext:io.github.salemsayed.omawarden"]
+      ["caffeine", "nightlight", "dnd", "screensaver", "suspend", "pluginmanager", "fishylayout", "ext:io.github.salemsayed.omawarden"]
     )
   | add_widget(
       "furina.omarchy-suite.plugin-manager";

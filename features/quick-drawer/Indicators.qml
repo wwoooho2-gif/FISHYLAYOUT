@@ -50,7 +50,7 @@ BarWidget {
   property real dragGhostWidth: Style.space(96)
   property real dragGhostHeight: Style.space(84)
 
-  readonly property var defaultItems: ["caffeine", "nightlight", "dnd", "screensaver", "suspend"]
+  readonly property var defaultItems: ["caffeine", "nightlight", "dnd", "screensaver", "suspend", "pluginmanager", "fishylayout"]
   // Settings are injected after the widget is created. A plain var binding on
   // settings.items did not re-evaluate when the bar handed the real entry in,
   // so keep the displayed list explicitly in sync.
@@ -66,7 +66,9 @@ BarWidget {
     { id: "network", label: "Network", icon: "󰖩", description: "Open the network panel and hide its bar icon", kind: "action" },
     { id: "power", label: "Power", icon: "󰐥", description: "Open the power panel and hide its bar icon", kind: "action" },
     { id: "monitor", label: "Monitor", icon: "󰍹", description: "Open the display panel and hide its bar icon", kind: "action" },
-    { id: "reminders", label: "Reminders", icon: "󰢌", description: "Open your reminders", kind: "action" }
+    { id: "reminders", label: "Reminders", icon: "󰢌", description: "Open your reminders", kind: "action" },
+    { id: "pluginmanager", label: "Plugins", icon: "\uf1e6", description: "Open the Plugin Manager", kind: "action" },
+    { id: "fishylayout", label: "FISHYLAYOUT", icon: "󰍜", description: "Open the FISHYLAYOUT dashboard", kind: "action" }
   ]
 
   // Bar widgets that do not make sense as one tile, or already have a core
@@ -113,14 +115,29 @@ BarWidget {
   readonly property color mutedColor: Util.alpha(foreground, 0.55)
 
   // Touchpad disappears from the grid when the machine has no touchpad.
-  readonly property var displayItems: {
+  // Kept as a plain property (not a binding) so the grid Repeater only
+  // rebuilds its tiles when the visible list really changes. A binding handed
+  // the Repeater a fresh array on every dependency touch (extension refresh on
+  // open, battery/touchpad probes), which destroyed and recreated every tile
+  // while the drawer was open.
+  property var displayItems: []
+  property string displaySignature: "\u0000"
+
+  function rebuildDisplayItems() {
     var out = []
+    var parts = []
     for (var i = 0; i < currentItems.length; i++) {
       var item = currentItems[i]
       if (!tileAvailable(item)) continue
       out.push(item)
+      var part = ""
+      try { part = JSON.stringify(item) } catch (error) { part = String(item) }
+      parts.push(part)
     }
-    return out
+    var signature = parts.join("|")
+    if (signature === displaySignature) return
+    displaySignature = signature
+    displayItems = out
   }
 
   readonly property bool hasHostedTiles: root.hasHostedTile()
@@ -174,7 +191,13 @@ BarWidget {
   }
 
   onSettingsChanged: root.reloadItems()
-  onCurrentItemsChanged: panelHostingTimer.restart()
+  onCurrentItemsChanged: {
+    rebuildDisplayItems()
+    panelHostingTimer.restart()
+  }
+  onHasTouchpadChanged: rebuildDisplayItems()
+  onHasBatteryChanged: rebuildDisplayItems()
+  onExtensionTilesChanged: rebuildDisplayItems()
   onBarChanged: panelHostingTimer.restart()
 
   onViewChanged: {
@@ -187,6 +210,7 @@ BarWidget {
 
   Component.onCompleted: {
     reloadItems()
+    rebuildDisplayItems()
     refreshDynamic()
     if (!touchpadProbe.running) touchpadProbe.running = true
     panelHostingTimer.restart()
@@ -324,6 +348,8 @@ BarWidget {
       case "power": runAction("omarchy-shell shell toggle omarchy.power"); break
       case "monitor": runAction("omarchy-shell shell toggle omarchy.monitor"); break
       case "reminders": runReminders(); break
+      case "pluginmanager": runAction("omarchy-shell furina.omarchy-suite.plugin-manager toggle"); break
+      case "fishylayout": runAction("omarchy-shell furina.omarchy-suite toggle"); break
     }
   }
 
@@ -721,7 +747,9 @@ BarWidget {
         firstParty: plugin.firstParty === true
       })
     }
-    extensionTiles = out
+    var same = false
+    try { same = JSON.stringify(extensionTiles) === JSON.stringify(out) } catch (error) { }
+    if (!same) extensionTiles = out
     panelHostingTimer.restart()
   }
 
@@ -1119,8 +1147,8 @@ BarWidget {
     }
     onExited: function(code) {
       if (code !== 0) {
-        root.extensionPlugins = []
-        root.extensionTiles = []
+        if (root.extensionPlugins.length > 0) root.extensionPlugins = []
+        if (root.extensionTiles.length > 0) root.extensionTiles = []
       }
     }
   }

@@ -11,15 +11,18 @@ import Quickshell.Io
 Item {
   id: root
 
-  readonly property string pluginDir: Qt.resolvedUrl(".").toString().replace("file://", "")
+  readonly property string pluginDir: decodeURIComponent(Qt.resolvedUrl(".").toString().replace("file://", ""))
 
   Component.onCompleted: applyProcess.running = true
 
   Process {
     id: applyProcess
     running: false
+    // Pass the script path as an argument instead of splicing it into the
+    // shell string, so a path with quotes or spaces cannot break the command.
     command: ["bash", "-c",
-      "exec python3 '" + root.pluginDir + "recolor.py' \"$(omarchy-theme-current 2>/dev/null || echo unknown)\""
+      "exec python3 \"$1\" \"$(omarchy-theme-current 2>/dev/null || echo unknown)\"",
+      "bash", root.pluginDir + "recolor.py"
     ]
     stdout: StdioCollector { onStreamFinished: if (text) console.log("cursor-accent:", text.trim()) }
     stderr: StdioCollector { onStreamFinished: if (text) console.warn("cursor-accent:", text.trim()) }

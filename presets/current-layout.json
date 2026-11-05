@@ -21,6 +21,8 @@
             "dnd",
             "screensaver",
             "suspend",
+            "pluginmanager",
+            "fishylayout",
             "ext:io.github.salemsayed.omawarden"
           ]
         },

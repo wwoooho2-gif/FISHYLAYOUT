@@ -54,7 +54,7 @@ def is_bar_blur_enabled():
         if "-- @omarchy-glass-start" in content and "-- @omarchy-glass-end" in content:
             block = content.split("-- @omarchy-glass-start")[1].split("-- @omarchy-glass-end")[0]
             return "omarchy-bar" in block and "blur = true" in block
-        return "omarchy-bar" in content and "blur = true" in block
+        return "omarchy-bar" in content and "blur = true" in content
     return False
 def is_bar_invert_enabled():
     if BAR_INVERT_FILE.exists():
@@ -91,7 +91,7 @@ def get_theme_accent():
             line = line.strip()
             if line.startswith("accent"):
                 parts = line.split("=")
-                if len(parts) == 2:
+                if len(parts) == 2 and parts[0].strip() == "accent":
                     return parts[1].strip().strip('"').strip("'")
     return "#d1583b"
 
@@ -112,20 +112,10 @@ def update_user_shell_toml(bar_mode, bar_color, bar_opacity):
             else:
                 sections.setdefault(current_section, []).append(line)
 
-    bar_lines = []
-    if current_section != "bar":
-        existing_bar = sections.get("bar", [])
-        for bl in existing_bar:
-            stripped = bl.strip()
-            if stripped.startswith("background-alpha") or stripped.startswith("text"):
-                continue
-            bar_lines.append(bl)
-    else:
-        for bl in sections.get("bar", []):
-            stripped = bl.strip()
-            if stripped.startswith("background-alpha") or stripped.startswith("text"):
-                continue
-            bar_lines.append(bl)
+    # Drop only the exact keys this script manages; a prefix match would also
+    # delete unrelated keys such as `text-size` or `textures`.
+    managed_key = re.compile(r"^\s*(background-alpha|text)\s*=")
+    bar_lines = [bl for bl in sections.get("bar", []) if not managed_key.match(bl)]
 
     bar_lines.insert(0, f"background-alpha = {bar_opacity:.2f}")
     if bar_mode == "custom" and is_valid_hex_color(bar_color):

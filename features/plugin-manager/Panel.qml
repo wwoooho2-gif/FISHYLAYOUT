@@ -288,7 +288,7 @@ Panel {
   // panel reconnects to the same job via this runtime status file.
   property string updateHelperPath: ""
   property string updateRunnerPath: ""
-  readonly property string runtimeStatePath: String(Qt.resolvedUrl("runtime-state.py")).replace(/^file:\/\//, "")
+  readonly property string runtimeStatePath: decodeURIComponent(String(Qt.resolvedUrl("runtime-state.py")).replace(/^file:\/\//, ""))
   // Wraps plugin-state.sh with a lock+cache so the omaplug instance on each
   // monitor's bar doesn't independently re-fetch every plugin's remote when
   // the background timer (not a user click) is what triggered the check.
@@ -1683,7 +1683,7 @@ Panel {
     }
     root.keepOpenAcrossRebuild()
     var nested = root.nestedWidgetIds[String(id)] === true
-    var helper = String(Qt.resolvedUrl("nested-widget-toggle.sh")).replace(/^file:\/\//, "")
+    var helper = decodeURIComponent(String(Qt.resolvedUrl("nested-widget-toggle.sh")).replace(/^file:\/\//, ""))
     root.pluginToggleProcess.command = !value && nested
       ? ["setsid", "-f", helper, id, "disable"]
       : ["omarchy", "plugin", value ? "enable" : "disable", id]
@@ -1857,11 +1857,11 @@ Panel {
 
   Component.onCompleted: {
     console.log("Panel.qml loaded, filterMode=", root.filterMode, "rows=", root.pluginRows.length)
-    root.marketplaceHelperPath = String(Qt.resolvedUrl("marketplace-catalog.sh")).replace(/^file:\/\//, "")
-    root.updateHelperPath = String(Qt.resolvedUrl("plugin-state.sh")).replace(/^file:\/\//, "")
-    root.updateRunnerPath = String(Qt.resolvedUrl("update-helper.sh")).replace(/^file:\/\//, "")
-    root.folderLayoutHelperPath = String(Qt.resolvedUrl("plugin-folder-layout.py")).replace(/^file:\/\//, "")
-    root.autoCheckCoordinatorPath = String(Qt.resolvedUrl("auto-check-coordinator.sh")).replace(/^file:\/\//, "")
+    root.marketplaceHelperPath = decodeURIComponent(String(Qt.resolvedUrl("marketplace-catalog.sh")).replace(/^file:\/\//, ""))
+    root.updateHelperPath = decodeURIComponent(String(Qt.resolvedUrl("plugin-state.sh")).replace(/^file:\/\//, ""))
+    root.updateRunnerPath = decodeURIComponent(String(Qt.resolvedUrl("update-helper.sh")).replace(/^file:\/\//, ""))
+    root.folderLayoutHelperPath = decodeURIComponent(String(Qt.resolvedUrl("plugin-folder-layout.py")).replace(/^file:\/\//, ""))
+    root.autoCheckCoordinatorPath = decodeURIComponent(String(Qt.resolvedUrl("auto-check-coordinator.sh")).replace(/^file:\/\//, ""))
     refreshPlugins()
     fetchMarketplace()
     Qt.callLater(function() { updateStatusFile.reload(); installStatusFile.reload() })

@@ -144,7 +144,10 @@ def run(command, seconds, consume):
                     if total > LIMIT:
                         raise ValueError("process output exceeds limit")
                     consume(chunk)
-            return child.wait(timeout=max(0.1, deadline - time.monotonic()))
+            try:
+                return child.wait(timeout=max(0.1, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                raise TimeoutError("operation timed out") from None
     finally:
         stop_child(child)
         child.stdout.close()
