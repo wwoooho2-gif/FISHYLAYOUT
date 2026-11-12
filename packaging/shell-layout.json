@@ -1,0 +1,115 @@
+{
+  "bar": {
+    "background": "glassy",
+    "layout": {
+      "center": [
+        {
+          "format": "dddd h:mm AP",
+          "formatAlt": "d MMMM 'W'ww yyyy",
+          "id": "omarchy.clock",
+          "verticalFormat": "HH\n\u2014\nmm"
+        }
+      ],
+      "centerBegin": [
+        {
+          "id": "omarchy.indicators"
+        },
+        {
+          "featurePath": "__HOME__/.config/omarchy/plugins/furina.omarchy-suite/features/better-media/BarWidget.qml",
+          "id": "furina.omarchy-suite.media",
+          "source": "__HOME__/.config/omarchy/plugins/furina.omarchy-suite/features/bar-widgets/Standalone.qml",
+          "type": "qml"
+        },
+        {
+          "id": "akshar.radio-atlas"
+        }
+      ],
+      "centerEnd": [
+        {
+          "featurePath": "__HOME__/.config/omarchy/plugins/furina.omarchy-suite/features/plugin-manager/BarWidget.qml",
+          "id": "furina.omarchy-suite.plugin-manager",
+          "source": "__HOME__/.config/omarchy/plugins/furina.omarchy-suite/features/bar-widgets/Standalone.qml",
+          "type": "qml"
+        },
+        {
+          "id": "omarchy.system-update"
+        }
+      ],
+      "left": [
+        {
+          "featurePath": "__HOME__/.config/omarchy/plugins/furina.omarchy-suite/features/quick-drawer/Indicators.qml",
+          "id": "furina.omarchy-suite.quick-drawer",
+          "items": [
+            "caffeine",
+            "nightlight",
+            "dnd",
+            "screensaver",
+            "suspend",
+            "pluginmanager",
+            "fishylayout",
+            "ext:io.github.salemsayed.omawarden"
+          ],
+          "source": "__HOME__/.config/omarchy/plugins/furina.omarchy-suite/features/bar-widgets/Standalone.qml",
+          "type": "qml"
+        },
+        {
+          "featurePath": "__HOME__/.config/omarchy/plugins/furina.omarchy-suite/features/glass-blur/Panel.qml",
+          "id": "furina.omarchy-suite.glass-blur",
+          "source": "__HOME__/.config/omarchy/plugins/furina.omarchy-suite/features/bar-widgets/Standalone.qml",
+          "type": "qml"
+        },
+        {
+          "featurePath": "__HOME__/.config/omarchy/plugins/furina.omarchy-suite/features/workspace-preview/WorkspacePreview.qml",
+          "id": "furina.omarchy-suite.workspace-preview",
+          "source": "__HOME__/.config/omarchy/plugins/furina.omarchy-suite/features/bar-widgets/Standalone.qml",
+          "type": "qml"
+        },
+        {
+          "id": "furina.omarchy-suite"
+        }
+      ],
+      "right": [
+        {
+          "id": "omarchy.tray"
+        },
+        {
+          "featurePath": "__HOME__/.config/omarchy/plugins/furina.omarchy-suite/features/gpu-monitor/BarWidget.qml",
+          "id": "furina.omarchy-suite.gpu-monitor",
+          "source": "__HOME__/.config/omarchy/plugins/furina.omarchy-suite/features/bar-widgets/Standalone.qml",
+          "type": "qml"
+        },
+        {
+          "id": "omarchy.keyboard-layout"
+        },
+        {
+          "id": "omarchy.audio"
+        },
+        {
+          "id": "omarchy.network"
+        },
+        {
+          "id": "omarchy.monitor"
+        },
+        {
+          "id": "omarchy.power"
+        }
+      ],
+      "tray": []
+    },
+    "position": "top"
+  },
+  "dock": {
+    "pinned": [
+      "org.gnome.Nautilus",
+      "chromium",
+      "foot"
+    ],
+    "position": "bottom"
+  },
+  "idle": {
+    "lock": 300,
+    "screensaver": 150
+  },
+  "plugins": [],
+  "version": 1
+}
