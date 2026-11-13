@@ -1,5 +1,4 @@
 #!/bin/bash
-# Install the bundled FISHYLAYOUT plugin into the user's plugin directory.
 
 set -euo pipefail
 
@@ -22,7 +21,6 @@ dst="$HOME/.config/omarchy/plugins/furina.omarchy-suite"
 
 mkdir -p "$(dirname -- "$dst")"
 if [[ -e $dst || -L $dst ]]; then
-  # A user-installed copy wins; leave it alone.
   echo "FISHYLAYOUT is already installed at $dst"
 else
   cp -a -- "$src" "$dst"

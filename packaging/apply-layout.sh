@@ -1,5 +1,4 @@
 #!/bin/bash
-# Apply the captured shell bar layout, with paths resolved for this user.
 
 set -euo pipefail
 
@@ -44,8 +43,6 @@ else
   cp -- "$rendered" "$config"
 fi
 
-# The shell's own settings (font size, bar transparency) live in shell.toml.
-# Ship the captured copy, but never overwrite settings the user already made.
 toml_template=/usr/share/omarchy-fishylayout/shell.toml
 toml_config="$config_dir/shell.toml"
 if [[ ! -e $toml_config && -r $toml_template ]]; then

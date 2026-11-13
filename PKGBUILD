@@ -1,4 +1,3 @@
-# Maintainer: Furina
 pkgname=omarchy-fishylayout
 pkgver=1.0.0
 pkgrel=1
