@@ -16,6 +16,7 @@ package() {
   find "$dst" -name '__pycache__' -type d -prune -exec rm -rf -- {} +
 
   install -Dm644 "$startdir/packaging/shell-layout.json" "$dst/shell-layout.json"
+  install -Dm644 "$startdir/packaging/shell.toml" "$dst/shell.toml"
   install -Dm755 "$startdir/packaging/install-plugin.sh" "$dst/install-plugin.sh"
   install -Dm755 "$startdir/packaging/apply-layout.sh" "$dst/apply-layout.sh"
   install -Dm755 "$startdir/packaging/hook-plugin.sh" \

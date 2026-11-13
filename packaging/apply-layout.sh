@@ -44,6 +44,15 @@ else
   cp -- "$rendered" "$config"
 fi
 
+# The shell's own settings (font size, bar transparency) live in shell.toml.
+# Ship the captured copy, but never overwrite settings the user already made.
+toml_template=/usr/share/omarchy-fishylayout/shell.toml
+toml_config="$config_dir/shell.toml"
+if [[ ! -e $toml_config && -r $toml_template ]]; then
+  cp -- "$toml_template" "$toml_config"
+  echo "Installed the FISHARCHY shell settings"
+fi
+
 command -v omarchy-shell >/dev/null 2>&1 &&
   omarchy-shell shell reloadConfig >/dev/null 2>&1 || true
 
