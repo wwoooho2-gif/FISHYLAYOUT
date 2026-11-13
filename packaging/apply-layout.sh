@@ -30,7 +30,8 @@ jq -e . "$rendered" >/dev/null
 if [[ -r $config ]] && jq -e 'type == "object"' "$config" >/dev/null 2>&1; then
   temporary=$(mktemp "$config.XXXXXX")
   if jq --slurpfile layout "$rendered" \
-    '.bar = $layout[0].bar | .dock = $layout[0].dock' \
+    '.bar = $layout[0].bar | .dock = $layout[0].dock
+     | (if $layout[0].idle then .idle = $layout[0].idle else . end)' \
     "$config" >"$temporary"; then
     chmod --reference="$config" "$temporary"
     mv -f -- "$temporary" "$config"
